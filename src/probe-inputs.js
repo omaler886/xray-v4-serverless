@@ -158,8 +158,20 @@ function extractProbeInputs(content) {
     return yamlInputs;
   }
 
+  const jsonInputs = extractSingBoxJsonInputs(content);
+
+  if (jsonInputs.length > 0) {
+    return jsonInputs;
+  }
+
   const decodedContent = decodeBase64(content);
-  return extractClashYamlInputs(decodedContent);
+  const decodedYamlInputs = extractClashYamlInputs(decodedContent);
+
+  if (decodedYamlInputs.length > 0) {
+    return decodedYamlInputs;
+  }
+
+  return extractSingBoxJsonInputs(decodedContent);
 }
 
 /**
@@ -451,6 +463,295 @@ function buildClashGrpcSettings(proxy) {
 
   return {
     serviceName: grpcOptions['grpc-service-name'] || grpcOptions.serviceName || '',
+  };
+}
+
+/**
+ * 功能说明：从 sing-box JSON 配置中提取代理节点。
+ * 参数说明：content 为 JSON 文本。
+ * 返回值说明：返回可直接传给 probeNodeIpv4 的节点输入。
+ */
+function extractSingBoxJsonInputs(content) {
+  const parsedConfig = parseJson(content);
+  const outbounds = Array.isArray(parsedConfig?.outbounds)
+    ? parsedConfig.outbounds
+    : getArrayConfig(parsedConfig);
+
+  return outbounds.map(convertSingBoxOutbound).filter(Boolean);
+}
+
+/**
+ * 功能说明：解析 JSON，避免非 JSON 订阅导致流程中断。
+ * 参数说明：content 为候选 JSON 文本。
+ * 返回值说明：解析成功返回对象，失败返回 null。
+ */
+function parseJson(content) {
+  try {
+    return JSON.parse(String(content));
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * 功能说明：兼容直接返回 outbound 数组的订阅。
+ * 参数说明：parsedConfig 为 JSON 解析结果。
+ * 返回值说明：返回数组配置或空数组。
+ */
+function getArrayConfig(parsedConfig) {
+  return Array.isArray(parsedConfig) ? parsedConfig : [];
+}
+
+/**
+ * 功能说明：把 sing-box outbound 转成 Xray outbound。
+ * 参数说明：outbound 为 sing-box outbounds 列表中的单个节点。
+ * 返回值说明：支持的节点返回探测输入，不支持返回 null。
+ */
+function convertSingBoxOutbound(outbound) {
+  if (!outbound || typeof outbound !== 'object') {
+    return null;
+  }
+
+  if (outbound.type === 'vless') {
+    return convertSingBoxVless(outbound);
+  }
+
+  if (outbound.type === 'vmess') {
+    return convertSingBoxVmess(outbound);
+  }
+
+  if (outbound.type === 'trojan') {
+    return convertSingBoxTrojan(outbound);
+  }
+
+  if (outbound.type === 'shadowsocks') {
+    return convertSingBoxShadowsocks(outbound);
+  }
+
+  return null;
+}
+
+/**
+ * 功能说明：转换 sing-box VLESS 出站。
+ * 参数说明：outbound 为 sing-box VLESS outbound。
+ * 返回值说明：返回 Xray outbound 探测输入。
+ */
+function convertSingBoxVless(outbound) {
+  return {
+    nodeName: outbound.tag || 'vless-node',
+    outbound: {
+      protocol: 'vless',
+      settings: {
+        vnext: [
+          {
+            address: outbound.server,
+            port: Number(outbound.server_port),
+            users: [
+              {
+                id: outbound.uuid,
+                encryption: outbound.packet_encoding || 'none',
+                ...(outbound.flow ? { flow: outbound.flow } : {}),
+              },
+            ],
+          },
+        ],
+      },
+      streamSettings: buildSingBoxStreamSettings(outbound),
+    },
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box VMess 出站。
+ * 参数说明：outbound 为 sing-box VMess outbound。
+ * 返回值说明：返回 Xray outbound 探测输入。
+ */
+function convertSingBoxVmess(outbound) {
+  return {
+    nodeName: outbound.tag || 'vmess-node',
+    outbound: {
+      protocol: 'vmess',
+      settings: {
+        vnext: [
+          {
+            address: outbound.server,
+            port: Number(outbound.server_port),
+            users: [
+              {
+                id: outbound.uuid,
+                alterId: Number(outbound.alter_id || 0),
+                security: outbound.security || 'auto',
+              },
+            ],
+          },
+        ],
+      },
+      streamSettings: buildSingBoxStreamSettings(outbound),
+    },
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box Trojan 出站。
+ * 参数说明：outbound 为 sing-box Trojan outbound。
+ * 返回值说明：返回 Xray outbound 探测输入。
+ */
+function convertSingBoxTrojan(outbound) {
+  return {
+    nodeName: outbound.tag || 'trojan-node',
+    outbound: {
+      protocol: 'trojan',
+      settings: {
+        servers: [
+          {
+            address: outbound.server,
+            port: Number(outbound.server_port),
+            password: outbound.password,
+          },
+        ],
+      },
+      streamSettings: buildSingBoxStreamSettings(outbound),
+    },
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box Shadowsocks 出站。
+ * 参数说明：outbound 为 sing-box Shadowsocks outbound。
+ * 返回值说明：返回 Xray outbound 探测输入。
+ */
+function convertSingBoxShadowsocks(outbound) {
+  return {
+    nodeName: outbound.tag || 'ss-node',
+    outbound: {
+      protocol: 'shadowsocks',
+      settings: {
+        servers: [
+          {
+            address: outbound.server,
+            port: Number(outbound.server_port),
+            method: outbound.method,
+            password: outbound.password,
+          },
+        ],
+      },
+    },
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box 出站的传输层配置。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 Xray streamSettings。
+ */
+function buildSingBoxStreamSettings(outbound) {
+  const network = outbound.transport?.type || 'tcp';
+  const streamSettings = {
+    network: mapSingBoxNetwork(network),
+    security: getSingBoxSecurity(outbound),
+  };
+
+  if (streamSettings.security === 'tls') {
+    streamSettings.tlsSettings = buildSingBoxTlsSettings(outbound);
+  }
+
+  if (streamSettings.security === 'reality') {
+    streamSettings.realitySettings = buildSingBoxRealitySettings(outbound);
+  }
+
+  if (streamSettings.network === 'ws') {
+    streamSettings.wsSettings = buildSingBoxWsSettings(outbound);
+  }
+
+  if (streamSettings.network === 'grpc') {
+    streamSettings.grpcSettings = buildSingBoxGrpcSettings(outbound);
+  }
+
+  return streamSettings;
+}
+
+/**
+ * 功能说明：映射 sing-box transport 类型到 Xray network。
+ * 参数说明：network 为 sing-box transport.type。
+ * 返回值说明：返回 Xray network。
+ */
+function mapSingBoxNetwork(network) {
+  if (network === 'httpupgrade') {
+    return 'httpupgrade';
+  }
+
+  return network;
+}
+
+/**
+ * 功能说明：判断 sing-box 出站安全层。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 Xray security 值。
+ */
+function getSingBoxSecurity(outbound) {
+  if (outbound.tls?.reality?.enabled) {
+    return 'reality';
+  }
+
+  return outbound.tls?.enabled ? 'tls' : 'none';
+}
+
+/**
+ * 功能说明：转换 sing-box TLS 参数。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 tlsSettings。
+ */
+function buildSingBoxTlsSettings(outbound) {
+  return {
+    serverName: outbound.tls?.server_name || outbound.server,
+    ...(outbound.tls?.utls?.fingerprint
+      ? { fingerprint: outbound.tls.utls.fingerprint }
+      : {}),
+    ...(outbound.tls?.insecure ? { allowInsecure: true } : {}),
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box Reality 参数。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 realitySettings。
+ */
+function buildSingBoxRealitySettings(outbound) {
+  return {
+    serverName: outbound.tls?.server_name || '',
+    fingerprint: outbound.tls?.utls?.fingerprint || 'chrome',
+    publicKey: outbound.tls?.reality?.public_key || '',
+    shortId: outbound.tls?.reality?.short_id || '',
+  };
+}
+
+/**
+ * 功能说明：转换 sing-box WebSocket 参数。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 wsSettings。
+ */
+function buildSingBoxWsSettings(outbound) {
+  const transport = outbound.transport || {};
+  const host = transport.headers?.Host || transport.headers?.host;
+  const wsSettings = {
+    path: transport.path || '/',
+  };
+
+  if (host) {
+    wsSettings.headers = { Host: host };
+  }
+
+  return wsSettings;
+}
+
+/**
+ * 功能说明：转换 sing-box gRPC 参数。
+ * 参数说明：outbound 为 sing-box outbound。
+ * 返回值说明：返回 grpcSettings。
+ */
+function buildSingBoxGrpcSettings(outbound) {
+  return {
+    serviceName: outbound.transport?.service_name || '',
   };
 }
 

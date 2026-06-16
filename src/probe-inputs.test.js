@@ -45,6 +45,33 @@ assert.equal(yamlInputs[0].nodeName, 'yaml-vless');
 assert.equal(yamlInputs[0].outbound.protocol, 'vless');
 assert.equal(yamlInputs[0].outbound.streamSettings.wsSettings.headers.Host, 'cdn.example.com');
 
+const singBoxJson = JSON.stringify({
+  outbounds: [
+    {
+      type: 'vless',
+      tag: 'sing-box-vless',
+      server: 'example.com',
+      server_port: 443,
+      uuid: '00000000-0000-0000-0000-000000000000',
+      tls: {
+        enabled: true,
+        server_name: 'example.com',
+        utls: { enabled: true, fingerprint: 'chrome' },
+      },
+      transport: {
+        type: 'ws',
+        path: '/ws',
+        headers: { Host: 'cdn.example.com' },
+      },
+    },
+  ],
+});
+const singBoxInputs = extractProbeInputs(singBoxJson);
+assert.equal(singBoxInputs.length, 1);
+assert.equal(singBoxInputs[0].nodeName, 'sing-box-vless');
+assert.equal(singBoxInputs[0].outbound.protocol, 'vless');
+assert.equal(singBoxInputs[0].outbound.streamSettings.tlsSettings.fingerprint, 'chrome');
+
 (async () => {
   const fakeFetch = async () => ({
     ok: true,
@@ -100,6 +127,21 @@ assert.equal(yamlInputs[0].outbound.streamSettings.wsSettings.headers.Host, 'cdn
 
   assert.equal(probeInputs.length, 1);
   assert.equal(probeInputs[0].outbound.protocol, 'vless');
+
+  const singBoxFetch = async () => ({
+    ok: true,
+    text: async () => singBoxJson,
+  });
+  const singBoxProbeInputs = await collectProbeInputs(
+    {
+      XRAY_SUBSCRIPTION_URLS: 'https://example.com/sing-box.json',
+      PROBE_MAX_NODES: '1',
+    },
+    singBoxFetch,
+  );
+
+  assert.equal(singBoxProbeInputs.length, 1);
+  assert.equal(singBoxProbeInputs[0].outbound.protocol, 'vless');
   console.log('probe input tests passed');
 })().catch((error) => {
   console.error(error);
