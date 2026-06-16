@@ -186,6 +186,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
    - `GIST_TOKEN`: 可选。开启 Gist 发布时需要，使用带 `gist` 权限的 PAT。
    - `GIST_ID`: 可选。开启 Gist 发布时需要，填已有 secret gist 的 ID。
    - `GIST_FILENAME`: 可选。默认 `patched-subscription.txt`。
+   - `GIST_OUTPUT_FORMAT`: 可选。默认输出 `vless://`、`vmess://`、`trojan://`、`ss://` 分享链接；只有设为 `original` 才保留原订阅格式。
 4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
 5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
 6. 默认不显示节点名、出口 IPv4 和详细错误；私有调试时才打开 `reveal_results`。
@@ -232,7 +233,9 @@ GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知
 
 - 只在至少一个节点探测成功时发布。
 - 成功节点会把订阅里的 `server` 替换为探测出的 IPv4。
-- 支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
+- 默认发布为一行一个的分享链接订阅，输出是 `vless://`、`vmess://`、`trojan://`、`ss://`，不会输出 sing-box JSON。
+- 输入仍支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
+- 如果确实想保持输入原格式，把 `GIST_OUTPUT_FORMAT` secret 设为 `original`。
 - 如果输入是 `XRAY_SHARE_LINKS`，也会生成一个私密 Gist 文件。
 - 替换后的内容只写入 Gist，不会作为 artifact 上传，不会打印到日志。
 - 多个订阅会写成多个文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。

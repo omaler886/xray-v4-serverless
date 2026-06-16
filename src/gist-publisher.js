@@ -14,7 +14,9 @@ async function publishPatchedSubscriptions(plan, results, env = process.env, fet
     return false;
   }
 
-  const files = buildGistFiles(plan, results, env.GIST_FILENAME || 'patched-subscription.txt');
+  const files = buildGistFiles(plan, results, env.GIST_FILENAME || 'patched-subscription.txt', {
+    outputFormat: env.GIST_OUTPUT_FORMAT || 'share-links',
+  });
 
   if (Object.keys(files).length === 0) {
     throw new Error('no patched subscription content was generated');
@@ -51,7 +53,11 @@ function validateGistEnv(env) {
  * 参数说明：plan 为探测计划，results 为探测结果，baseFilename 为文件名。
  * 返回值说明：返回 GitHub Gist files 对象。
  */
-function buildGistFiles(plan, results, baseFilename) {
+function buildGistFiles(plan, results, baseFilename, options = {}) {
+  if ((options.outputFormat || 'share-links') === 'share-links') {
+    return buildShareLinkGistFiles(plan, results, baseFilename);
+  }
+
   const files = {};
 
   for (const document of plan.subscriptionDocuments || []) {
@@ -77,16 +83,64 @@ function buildGistFiles(plan, results, baseFilename) {
 }
 
 /**
+ * 功能说明：生成分享链接格式的 Gist 文件。
+ * 参数说明：plan 为探测计划，results 为探测结果，baseFilename 为文件名。
+ * 返回值说明：返回 GitHub Gist files 对象。
+ */
+function buildShareLinkGistFiles(plan, results, baseFilename) {
+  const files = {};
+
+  for (const document of plan.subscriptionDocuments || []) {
+    const items = getDocumentItems(plan.inputs, results, document.documentIndex);
+    const content = buildShareLinkContent(items);
+    const filename = getGistFilename(baseFilename, document.documentIndex, plan.subscriptionDocuments.length);
+
+    if (content) {
+      files[filename] = { content };
+    }
+  }
+
+  const directItems = getDirectItems(plan.inputs, results);
+  const directContent = buildShareLinkContent(directItems);
+
+  if (directContent) {
+    const filename = Object.keys(files).length > 0 ? getDirectGistFilename(baseFilename) : baseFilename;
+    files[filename] = { content: directContent };
+  }
+
+  return files;
+}
+
+/**
  * 功能说明：获取属于某个订阅文档的探测结果。
  * 参数说明：inputs 为节点输入，results 为探测结果，documentIndex 为订阅索引。
  * 返回值说明：返回按订阅节点顺序排列的结果数组。
  */
 function getDocumentResults(inputs, results, documentIndex) {
+  return getDocumentItems(inputs, results, documentIndex).map((item) => item.result);
+}
+
+/**
+ * 功能说明：获取属于某个订阅文档的节点输入和探测结果。
+ * 参数说明：inputs 为节点输入，results 为探测结果，documentIndex 为订阅索引。
+ * 返回值说明：返回按订阅节点顺序排列的条目数组。
+ */
+function getDocumentItems(inputs, results, documentIndex) {
   return inputs
     .map((input, resultIndex) => ({ input, result: results[resultIndex] }))
     .filter((item) => item.input.source?.documentIndex === documentIndex)
-    .sort((left, right) => left.input.source.nodeIndex - right.input.source.nodeIndex)
-    .map((item) => item.result);
+    .sort((left, right) => left.input.source.nodeIndex - right.input.source.nodeIndex);
+}
+
+/**
+ * 功能说明：获取直接分享链接输入和探测结果。
+ * 参数说明：inputs 为节点输入，results 为探测结果。
+ * 返回值说明：返回直接输入条目数组。
+ */
+function getDirectItems(inputs, results) {
+  return inputs
+    .map((input, resultIndex) => ({ input, result: results[resultIndex] }))
+    .filter((item) => item.input.source?.type === 'direct');
 }
 
 /**
@@ -95,9 +149,7 @@ function getDocumentResults(inputs, results, documentIndex) {
  * 返回值说明：有可发布内容时返回文件名和内容，否则返回 null。
  */
 function buildDirectShareLinkFile(inputs, results, baseFilename, existingFiles) {
-  const directItems = inputs
-    .map((input, resultIndex) => ({ input, result: results[resultIndex] }))
-    .filter((item) => item.input.source?.type === 'direct' && item.input.shareLink);
+  const directItems = getDirectItems(inputs, results).filter((item) => item.input.shareLink);
 
   if (directItems.length === 0 || !hasPatchableResult(directItems.map((item) => item.result))) {
     return null;
@@ -113,6 +165,233 @@ function buildDirectShareLinkFile(inputs, results, baseFilename, existingFiles) 
     filename,
     content: patchSubscriptionContent(directContent, directResults),
   };
+}
+
+/**
+ * 功能说明：把成功节点转换成一行一个的分享链接。
+ * 参数说明：items 为节点输入和探测结果条目。
+ * 返回值说明：返回分享链接订阅文本。
+ */
+function buildShareLinkContent(items) {
+  return items
+    .filter((item) => item.result?.ok && item.result.ipv4)
+    .map((item) => buildPatchedShareLink(item.input, item.result.ipv4))
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * 功能说明：生成替换为 IPv4 后的分享链接。
+ * 参数说明：input 为节点输入，ipv4 为探测出的 IPv4。
+ * 返回值说明：返回分享链接。
+ */
+function buildPatchedShareLink(input, ipv4) {
+  if (input.shareLink) {
+    return patchShareLinkServer(input.shareLink, ipv4);
+  }
+
+  if (input.outbound) {
+    return outboundToShareLink(input.outbound, ipv4, input.nodeName);
+  }
+
+  return '';
+}
+
+/**
+ * 功能说明：把 Xray outbound 转换成分享链接。
+ * 参数说明：outbound 为 Xray outbound，ipv4 为替换后的服务器地址，nodeName 为节点名。
+ * 返回值说明：返回 vless/vmess/trojan/ss 分享链接。
+ */
+function outboundToShareLink(outbound, ipv4, nodeName) {
+  if (outbound.protocol === 'vless') {
+    return vlessOutboundToLink(outbound, ipv4, nodeName);
+  }
+
+  if (outbound.protocol === 'vmess') {
+    return vmessOutboundToLink(outbound, ipv4, nodeName);
+  }
+
+  if (outbound.protocol === 'trojan') {
+    return trojanOutboundToLink(outbound, ipv4, nodeName);
+  }
+
+  if (outbound.protocol === 'shadowsocks') {
+    return shadowsocksOutboundToLink(outbound, ipv4, nodeName);
+  }
+
+  return '';
+}
+
+/**
+ * 功能说明：把 VLESS outbound 转换成 vless:// 链接。
+ * 参数说明：outbound 为 Xray VLESS outbound，ipv4 为服务器地址，nodeName 为节点名。
+ * 返回值说明：返回 vless:// 链接。
+ */
+function vlessOutboundToLink(outbound, ipv4, nodeName) {
+  const server = outbound.settings?.vnext?.[0];
+  const user = server?.users?.[0];
+  const query = buildStreamQuery(outbound.streamSettings, {
+    encryption: user?.encryption || 'none',
+    flow: user?.flow,
+  });
+
+  return buildUrl('vless', user?.id, ipv4, server?.port, query, nodeName);
+}
+
+/**
+ * 功能说明：把 VMess outbound 转换成 vmess:// 链接。
+ * 参数说明：outbound 为 Xray VMess outbound，ipv4 为服务器地址，nodeName 为节点名。
+ * 返回值说明：返回 vmess:// 链接。
+ */
+function vmessOutboundToLink(outbound, ipv4, nodeName) {
+  const server = outbound.settings?.vnext?.[0];
+  const user = server?.users?.[0];
+  const streamSettings = outbound.streamSettings || {};
+  const vmessConfig = {
+    v: '2',
+    ps: nodeName || outbound.tag || 'vmess-node',
+    add: ipv4,
+    port: String(server?.port || ''),
+    id: user?.id || '',
+    aid: String(user?.alterId || 0),
+    scy: user?.security || 'auto',
+    net: streamSettings.network || 'tcp',
+    type: 'none',
+    host: getStreamHost(streamSettings),
+    path: getStreamPath(streamSettings),
+    tls: streamSettings.security === 'tls' ? 'tls' : '',
+    sni: getStreamServerName(streamSettings),
+    alpn: getStreamAlpn(streamSettings),
+    fp: getStreamFingerprint(streamSettings),
+  };
+
+  return `vmess://${encodeBase64(JSON.stringify(vmessConfig))}`;
+}
+
+/**
+ * 功能说明：把 Trojan outbound 转换成 trojan:// 链接。
+ * 参数说明：outbound 为 Xray Trojan outbound，ipv4 为服务器地址，nodeName 为节点名。
+ * 返回值说明：返回 trojan:// 链接。
+ */
+function trojanOutboundToLink(outbound, ipv4, nodeName) {
+  const server = outbound.settings?.servers?.[0];
+  const query = buildStreamQuery(outbound.streamSettings, {});
+
+  return buildUrl('trojan', server?.password, ipv4, server?.port, query, nodeName);
+}
+
+/**
+ * 功能说明：把 Shadowsocks outbound 转换成 ss:// 链接。
+ * 参数说明：outbound 为 Xray Shadowsocks outbound，ipv4 为服务器地址，nodeName 为节点名。
+ * 返回值说明：返回 ss:// 链接。
+ */
+function shadowsocksOutboundToLink(outbound, ipv4, nodeName) {
+  const server = outbound.settings?.servers?.[0];
+  const userInfo = encodeBase64(`${server?.method || ''}:${server?.password || ''}`).replace(/=+$/, '');
+  const fragment = nodeName ? `#${encodeURIComponent(nodeName)}` : '';
+
+  return `ss://${userInfo}@${ipv4}:${server?.port || ''}${fragment}`;
+}
+
+/**
+ * 功能说明：生成 URL 形式分享链接。
+ * 参数说明：protocol 为协议，username 为用户信息，host/port 为服务器，query 为参数，nodeName 为节点名。
+ * 返回值说明：返回分享链接字符串。
+ */
+function buildUrl(protocol, username, host, port, query, nodeName) {
+  const url = new URL(`${protocol}://${encodeURIComponent(username || '')}@${host}:${port || ''}`);
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  if (nodeName) {
+    url.hash = nodeName;
+  }
+
+  return url.toString();
+}
+
+/**
+ * 功能说明：把 streamSettings 转换成分享链接查询参数。
+ * 参数说明：streamSettings 为 Xray streamSettings，baseQuery 为基础参数。
+ * 返回值说明：返回查询参数对象。
+ */
+function buildStreamQuery(streamSettings = {}, baseQuery = {}) {
+  return {
+    ...baseQuery,
+    type: streamSettings.network || 'tcp',
+    security: streamSettings.security || 'none',
+    sni: getStreamServerName(streamSettings),
+    fp: getStreamFingerprint(streamSettings),
+    alpn: getStreamAlpn(streamSettings),
+    pbk: streamSettings.realitySettings?.publicKey,
+    sid: streamSettings.realitySettings?.shortId,
+    spx: streamSettings.realitySettings?.spiderX,
+    host: getStreamHost(streamSettings),
+    path: getStreamPath(streamSettings),
+    serviceName: streamSettings.grpcSettings?.serviceName,
+  };
+}
+
+/**
+ * 功能说明：读取传输层 Host。
+ * 参数说明：streamSettings 为 Xray streamSettings。
+ * 返回值说明：返回 Host 字符串。
+ */
+function getStreamHost(streamSettings = {}) {
+  return (
+    streamSettings.wsSettings?.headers?.Host ||
+    streamSettings.httpupgradeSettings?.host ||
+    streamSettings.xhttpSettings?.host ||
+    ''
+  );
+}
+
+/**
+ * 功能说明：读取传输层 path。
+ * 参数说明：streamSettings 为 Xray streamSettings。
+ * 返回值说明：返回 path 字符串。
+ */
+function getStreamPath(streamSettings = {}) {
+  return (
+    streamSettings.wsSettings?.path ||
+    streamSettings.httpupgradeSettings?.path ||
+    streamSettings.xhttpSettings?.path ||
+    streamSettings.grpcSettings?.serviceName ||
+    ''
+  );
+}
+
+/**
+ * 功能说明：读取 TLS/Reality SNI。
+ * 参数说明：streamSettings 为 Xray streamSettings。
+ * 返回值说明：返回 serverName 字符串。
+ */
+function getStreamServerName(streamSettings = {}) {
+  return streamSettings.tlsSettings?.serverName || streamSettings.realitySettings?.serverName || '';
+}
+
+/**
+ * 功能说明：读取 TLS/Reality fingerprint。
+ * 参数说明：streamSettings 为 Xray streamSettings。
+ * 返回值说明：返回 fingerprint 字符串。
+ */
+function getStreamFingerprint(streamSettings = {}) {
+  return streamSettings.tlsSettings?.fingerprint || streamSettings.realitySettings?.fingerprint || '';
+}
+
+/**
+ * 功能说明：读取 ALPN。
+ * 参数说明：streamSettings 为 Xray streamSettings。
+ * 返回值说明：返回逗号分隔 ALPN。
+ */
+function getStreamAlpn(streamSettings = {}) {
+  return Array.isArray(streamSettings.tlsSettings?.alpn)
+    ? streamSettings.tlsSettings.alpn.join(',')
+    : '';
 }
 
 /**

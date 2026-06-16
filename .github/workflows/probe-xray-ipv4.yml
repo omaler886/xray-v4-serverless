@@ -81,6 +81,7 @@ jobs:
           mask_lines "${SUBSCRIPTION_USER_AGENT}"
           mask_lines "${GIST_TOKEN}"
           mask_lines "${GIST_ID}"
+          mask_lines "${GIST_OUTPUT_FORMAT}"
         env:
           XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
           XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
@@ -88,6 +89,7 @@ jobs:
           SUBSCRIPTION_USER_AGENT: ${{ secrets.SUBSCRIPTION_USER_AGENT }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_OUTPUT_FORMAT: ${{ secrets.GIST_OUTPUT_FORMAT }}
 
       - name: Validate required secret
         run: |
@@ -140,4 +142,5 @@ jobs:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_FILENAME: ${{ secrets.GIST_FILENAME }}
+          GIST_OUTPUT_FORMAT: ${{ secrets.GIST_OUTPUT_FORMAT }}
         run: node src/run-probe.js

@@ -48,14 +48,40 @@ const plan = {
   subscriptionDocuments: [{ documentIndex: 0, content: singBoxJson }],
   inputs: [
     {
-      outbound: {},
+      nodeName: 'test',
+      outbound: {
+        protocol: 'vless',
+        settings: {
+          vnext: [
+            {
+              address: 'old.example.com',
+              port: 443,
+              users: [
+                {
+                  id: '00000000-0000-0000-0000-000000000000',
+                  encryption: 'none',
+                },
+              ],
+            },
+          ],
+        },
+        streamSettings: {
+          network: 'tcp',
+          security: 'none',
+        },
+      },
       source: { type: 'subscription', documentIndex: 0, nodeIndex: 0 },
     },
   ],
 };
-const files = buildGistFiles(plan, results, 'patched.json');
-assert.equal(Object.keys(files)[0], 'patched.json');
-assert.equal(JSON.parse(files['patched.json'].content).outbounds[0].server, '203.0.113.10');
+const files = buildGistFiles(plan, results, 'patched.txt');
+assert.equal(Object.keys(files)[0], 'patched.txt');
+assert.equal(files['patched.txt'].content.startsWith('vless://'), true);
+assert.equal(files['patched.txt'].content.includes('@203.0.113.10:443'), true);
+
+const originalFiles = buildGistFiles(plan, results, 'patched.json', { outputFormat: 'original' });
+assert.equal(Object.keys(originalFiles)[0], 'patched.json');
+assert.equal(JSON.parse(originalFiles['patched.json'].content).outbounds[0].server, '203.0.113.10');
 
 const directPlan = {
   subscriptionDocuments: [],
