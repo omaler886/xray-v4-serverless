@@ -32,15 +32,31 @@ async function collectShareLinks(env = process.env, fetchImpl = globalThis.fetch
  * 返回值说明：返回去重并限量后的节点输入数组。
  */
 async function collectProbeInputs(env = process.env, fetchImpl = globalThis.fetch) {
+  const plan = await collectProbePlan(env, fetchImpl);
+  return plan.inputs;
+}
+
+/**
+ * 功能说明：收集探测计划，保留订阅原文和节点来源用于后续私密发布。
+ * 参数说明：env 为环境变量对象，fetchImpl 为可替换的 fetch 实现。
+ * 返回值说明：返回 inputs 和 subscriptionDocuments。
+ */
+async function collectProbePlan(env = process.env, fetchImpl = globalThis.fetch) {
   const directLinks = [
     ...splitMultilineSecret(env.XRAY_SHARE_LINK),
     ...splitMultilineSecret(env.XRAY_SHARE_LINKS),
-  ].map((shareLink) => ({ shareLink }));
+  ].map((shareLink) => ({ shareLink, source: { type: 'direct' } }));
   const subscriptionUrls = splitMultilineSecret(env.XRAY_SUBSCRIPTION_URLS);
-  const subscriptionInputs = await fetchSubscriptionInputs(subscriptionUrls, env, fetchImpl);
+  const subscriptionDocuments = await fetchSubscriptionDocuments(subscriptionUrls, env, fetchImpl);
+  const subscriptionInputs = subscriptionDocuments.flatMap((document) =>
+    extractDocumentInputs(document),
+  );
   const maxNodes = getMaxNodes(env.PROBE_MAX_NODES);
 
-  return dedupeProbeInputs([...directLinks, ...subscriptionInputs]).slice(0, maxNodes);
+  return {
+    inputs: dedupeProbeInputs([...directLinks, ...subscriptionInputs]).slice(0, maxNodes),
+    subscriptionDocuments,
+  };
 }
 
 /**
@@ -65,6 +81,16 @@ function splitMultilineSecret(value) {
  * 返回值说明：返回订阅内提取出的节点输入数组。
  */
 async function fetchSubscriptionInputs(subscriptionUrls, env, fetchImpl) {
+  const documents = await fetchSubscriptionDocuments(subscriptionUrls, env, fetchImpl);
+  return documents.flatMap((document) => extractDocumentInputs(document));
+}
+
+/**
+ * 功能说明：拉取订阅原文并保留来源索引。
+ * 参数说明：subscriptionUrls 为订阅 URL 数组，env 为环境变量对象，fetchImpl 为 fetch 函数。
+ * 返回值说明：返回订阅文档数组。
+ */
+async function fetchSubscriptionDocuments(subscriptionUrls, env, fetchImpl) {
   if (subscriptionUrls.length === 0) {
     return [];
   }
@@ -73,9 +99,9 @@ async function fetchSubscriptionInputs(subscriptionUrls, env, fetchImpl) {
     throw new Error('fetch is required to read subscription urls');
   }
 
-  const inputs = [];
+  const documents = [];
   const userAgents = getSubscriptionUserAgents(env.SUBSCRIPTION_USER_AGENT);
-  for (const subscriptionUrl of subscriptionUrls) {
+  for (const [documentIndex, subscriptionUrl] of subscriptionUrls.entries()) {
     const content = await fetchSubscription(subscriptionUrl, userAgents, fetchImpl);
     const extractedInputs = extractProbeInputs(content);
 
@@ -83,10 +109,26 @@ async function fetchSubscriptionInputs(subscriptionUrls, env, fetchImpl) {
       console.error(`subscription format summary: ${describeSubscriptionContent(content)}`);
     }
 
-    inputs.push(...extractedInputs);
+    documents.push({ documentIndex, content });
   }
 
-  return inputs;
+  return documents;
+}
+
+/**
+ * 功能说明：提取单个订阅文档中的节点并记录来源位置。
+ * 参数说明：document 为订阅文档。
+ * 返回值说明：返回带 source 的节点输入数组。
+ */
+function extractDocumentInputs(document) {
+  return extractProbeInputs(document.content).map((input, nodeIndex) => ({
+    ...input,
+    source: {
+      type: 'subscription',
+      documentIndex: document.documentIndex,
+      nodeIndex,
+    },
+  }));
 }
 
 /**
@@ -894,6 +936,7 @@ function decodeBase64(value) {
 }
 
 module.exports = {
+  collectProbePlan,
   collectProbeInputs,
   collectShareLinks,
   describeSubscriptionContent,

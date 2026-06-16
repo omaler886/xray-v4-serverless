@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish_gist:
+        description: Publish patched subscription to a secret gist
+        required: false
+        type: boolean
+        default: false
       run_checks:
         description: Run local syntax/tests before probing
         required: false
@@ -66,11 +71,15 @@ jobs:
           mask_lines "${XRAY_SHARE_LINKS}"
           mask_lines "${XRAY_SUBSCRIPTION_URLS}"
           mask_lines "${SUBSCRIPTION_USER_AGENT}"
+          mask_lines "${GIST_TOKEN}"
+          mask_lines "${GIST_ID}"
         env:
           XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
           XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
           XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
           SUBSCRIPTION_USER_AGENT: ${{ secrets.SUBSCRIPTION_USER_AGENT }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
 
       - name: Validate required secret
         run: |
@@ -110,4 +119,8 @@ jobs:
           PROBE_MAX_NODES: ${{ inputs.max_nodes }}
           REQUIRE_ALL_OK: ${{ inputs.require_all_ok && '1' || '0' }}
           REVEAL_RESULTS: ${{ inputs.reveal_results && '1' || '0' }}
+          PUBLISH_GIST: ${{ inputs.publish_gist && '1' || '0' }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_FILENAME: ${{ secrets.GIST_FILENAME }}
         run: node src/run-probe.js

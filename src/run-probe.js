@@ -1,7 +1,8 @@
 'use strict';
 
 const { probeNodeIpv4 } = require('./probe');
-const { collectProbeInputs } = require('./probe-inputs');
+const { publishPatchedSubscriptions } = require('./gist-publisher');
+const { collectProbePlan } = require('./probe-inputs');
 
 /**
  * 功能说明：从环境变量读取一个或多个节点并执行 IPv4 探测。
@@ -9,7 +10,8 @@ const { collectProbeInputs } = require('./probe-inputs');
  * 返回值说明：通过 stdout 输出 JSON 探测结果汇总。
  */
 async function runProbe() {
-  const probeInputs = await collectProbeInputs();
+  const plan = await collectProbePlan();
+  const probeInputs = plan.inputs;
 
   if (probeInputs.length === 0) {
     throw new Error('no supported nodes found in share links or subscriptions');
@@ -29,6 +31,10 @@ async function runProbe() {
   };
 
   console.log(JSON.stringify(getPrintableSummary(summary), null, 2));
+
+  if (summary.ok) {
+    await publishPatchedSubscriptions(plan, summary.results);
+  }
 
   if (!summary.ok || shouldRequireAllOk(summary)) {
     process.exitCode = 1;

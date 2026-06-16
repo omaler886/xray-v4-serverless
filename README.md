@@ -183,10 +183,14 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
    - `XRAY_SHARE_LINKS`: 多个节点链接，一行一个，适合 4 个 UUID 不同的节点。
    - `XRAY_SUBSCRIPTION_URLS`: 多个订阅 URL，一行一个，Action 会临时拉取并提取节点链接。
    - `SUBSCRIPTION_USER_AGENT`: 可选。订阅服务返回 403 时，可以填它要求的客户端 UA。
+   - `GIST_TOKEN`: 可选。开启 Gist 发布时需要，使用带 `gist` 权限的 PAT。
+   - `GIST_ID`: 可选。开启 Gist 发布时需要，填已有 secret gist 的 ID。
+   - `GIST_FILENAME`: 可选。默认 `patched-subscription.txt`。
 4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
 5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
 6. 默认不显示节点名、出口 IPv4 和详细错误；私有调试时才打开 `reveal_results`。
-7. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
+7. 默认不发布替换后的订阅；需要写入 Gist 时才打开 `publish_gist`。
+8. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
 
 如果 4 个节点只是 UUID 不同、服务器和传输参数完全一样，通常出口 IPv4 也一样。为了省额度，建议先把 `max_nodes` 设为 `1` 验证出口；只有怀疑某个 UUID 权限不同或可用性不同，再设为 `4` 全部测。
 
@@ -199,6 +203,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - secret 缺失会在下载 xray 前停止，避免空跑。
 - 不上传 artifact，不保存临时 Xray 配置。
 - `reveal_results` 默认 `false`，公开日志只显示成功数量和是否拿到 IPv4，不显示具体 IP。
+- `publish_gist` 默认 `false`，避免误覆盖私密订阅。
 
 泄露控制：
 
@@ -207,6 +212,26 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - 不要在 workflow 里添加 `env`、`printenv`、`set -x` 或 `echo $XRAY_SHARE_LINK`。
 - 不建议给 public repo 或 fork PR 开启带 secret 的运行。
 - 公开仓库不要打开 `reveal_results`，否则节点名、出口 IPv4 和详细错误会进入公开 Actions 日志。
+- 开启 `publish_gist` 时不要打印 Gist URL 或 raw URL；把 `GIST_ID` 和最终订阅 raw URL 当作私密信息保存。
+
+### 发布到 secret Gist
+
+GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知道链接的人仍可访问。公开仓库使用时不要把 Gist URL、Raw URL 或 Gist ID 写进日志、README、issue、commit。
+
+准备步骤：
+
+1. 手动创建一个 secret gist，里面放一个占位文件，例如 `patched-subscription.txt`。
+2. 记录该 Gist 的 ID，放入仓库 secret：`GIST_ID`。
+3. 创建一个只用于 Gist 的 GitHub PAT，权限勾选 `gist`，放入仓库 secret：`GIST_TOKEN`。
+4. 手动运行 workflow，保持 `reveal_results=false`，打开 `publish_gist=true`。
+
+发布行为：
+
+- 只在至少一个节点探测成功时发布。
+- 成功节点会把订阅里的 `server` 替换为探测出的 IPv4。
+- 支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
+- 替换后的内容只写入 Gist，不会作为 artifact 上传，不会打印到日志。
+- 多个订阅会写成多个文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。
 
 订阅返回 403 时：
 
