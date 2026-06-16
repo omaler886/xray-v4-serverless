@@ -1,0 +1,17 @@
+{
+  "name": "xray-v4-serverless",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serverless IPv4 egress prober for Xray nodes.",
+  "main": "api/probe-v4.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "probe": "node src/run-probe.js",
+    "test": "node src/share-link.test.js && node src/probe-inputs.test.js",
+    "check": "node --check src/probe.js && node --check src/share-link.js && node --check src/share-link.test.js && node --check src/probe-inputs.js && node --check src/probe-inputs.test.js && node --check src/run-probe.js && node --check api/probe-v4.js && node --check src/server.js && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

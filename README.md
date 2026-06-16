@@ -1,0 +1,212 @@
+# xray-v4-serverless
+
+通过 Serverless 函数临时启动 `xray-core`，用指定 Xray 节点探测实际出口 IPv4。
+
+## 原理
+
+函数收到请求后会：
+
+1. 读取请求里的 Xray 分享链接或 `outbound` 节点配置。
+2. 在系统临时目录生成一次性 Xray 配置。
+3. 启动本地 `127.0.0.1:<random>` HTTP 代理入站。
+4. 让 Node 通过该 HTTP 代理访问 IPv4-only 探测地址。
+5. 返回节点出口 IPv4，并清理临时进程和配置文件。
+
+这样不依赖系统自带 `curl`。如果你手动测试，等价思路是：
+
+```powershell
+curl.exe -4 --proxy http://127.0.0.1:1080 https://api.ipify.org
+```
+
+注意：如果使用 `socks5h`，域名解析会交给代理侧，单独加 `curl -4` 并不一定能约束远端解析。因此这里优先使用 IPv4-only 服务，并在临时 Xray 配置里设置 `UseIPv4`。
+
+## 文件
+
+- `api/probe-v4.js`: Serverless HTTP 入口，Vercel Node Function 可直接识别。
+- `src/probe.js`: 核心探测逻辑。
+- `src/share-link.js`: `vless://`、`vmess://`、`trojan://`、`ss://` 分享链接解析。
+- `src/server.js`: 本地开发服务器。
+- `examples/outbound.example.json`: 请求体示例。
+- `examples/share-link.example.json`: 分享链接请求体示例。
+
+## 环境变量
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `XRAY_BIN` | 推荐 | `xray` 或 `xray.exe` 的绝对路径。不设置时默认读取 `bin/xray` 或 `bin/xray.exe`。 |
+| `PROBE_TOKEN` | 部署必填 | API 访问 token，请求头使用 `Authorization: Bearer <token>`。 |
+| `PROBE_TIMEOUT_MS` | 可选 | 默认 `15000`，范围 `1000-60000`。 |
+| `ALLOW_UNAUTHENTICATED_PROBE` | 仅本地可选 | 设置为 `1` 时允许无 token 调用。公网不要开启。 |
+
+## 本地运行
+
+先下载对应平台的 `xray-core`，然后指定路径：
+
+```powershell
+cd "D:\proxy config\xray-v4-serverless"
+$env:XRAY_BIN="D:\tools\xray\xray.exe"
+$env:PROBE_TOKEN="change-me"
+npm run dev
+```
+
+调用接口：
+
+```powershell
+$body = Get-Content .\examples\share-link.example.json -Raw
+curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
+  -H "content-type: application/json" `
+  -H "authorization: Bearer change-me" `
+  --data $body
+```
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "ipv4": "1.2.3.4",
+  "latencyMs": 1350,
+  "provider": "https://api.ipify.org",
+  "node": "example-vless-node",
+  "error": null
+}
+```
+
+失败时会返回明确错误，但不会回显节点密钥。
+
+## 本地烟测
+
+没有真实节点时，可以先用 Xray 的 `freedom` 出口验证服务机制：
+
+```powershell
+$body = '{"node":"freedom-ipv4-smoke","timeoutMs":15000,"outbound":{"protocol":"freedom","settings":{"domainStrategy":"UseIPv4"}}}'
+curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
+  -H "content-type: application/json" `
+  -H "authorization: Bearer change-me" `
+  --data $body
+```
+
+这只能证明 Serverless 函数能启动 Xray 并拿到 IPv4；真实节点是否可用仍要用你的节点链接或 outbound 配置验证。
+
+## 请求体格式
+
+最方便的方式是直接提交分享链接：
+
+```json
+{
+  "node": "my-node",
+  "timeoutMs": 15000,
+  "shareLink": "vless://00000000-0000-0000-0000-000000000000@example.com:443?encryption=none&security=tls&type=tcp&sni=example.com#my-node"
+}
+```
+
+支持字段名：
+
+- `shareLink`
+- `link`
+- `url`
+- `nodeUrl`
+
+支持协议：
+
+- `vless://`
+- `vmess://`
+- `trojan://`
+- `ss://`
+
+也可以直接提交单个 Xray outbound：
+
+```json
+{
+  "node": "my-node",
+  "timeoutMs": 15000,
+  "outbound": {
+    "protocol": "vless",
+    "settings": {
+      "vnext": [
+        {
+          "address": "example.com",
+          "port": 443,
+          "users": [
+            {
+              "id": "00000000-0000-0000-0000-000000000000",
+              "encryption": "none"
+            }
+          ]
+        }
+      ]
+    },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "tls",
+      "tlsSettings": {
+        "serverName": "example.com"
+      }
+    }
+  }
+}
+```
+
+也兼容：
+
+- `{ "outbounds": [ ... ] }`
+- `{ "config": { "outbounds": [ ... ] } }`
+
+如果节点使用很少见的传输层参数，建议直接提交 Xray outbound JSON；分享链接解析器覆盖常见的 TCP、TLS、Reality、WebSocket、gRPC、HTTPUpgrade 和 XHTTP 参数。
+
+## 部署建议
+
+适合：
+
+- AWS Lambda
+- 阿里云函数计算
+- 腾讯云云函数
+- 允许执行随包二进制的 Vercel Node Functions
+
+不适合：
+
+- Cloudflare Workers，因为不能运行 `xray-core` 本地二进制。
+- 只允许 Edge Runtime 的平台，因为 Xray 需要子进程和 TCP。
+
+部署时需要把 Linux 版本 `xray` 二进制随函数一起打包，或通过环境变量 `XRAY_BIN` 指向运行时可执行路径。若平台不保留可执行权限，可以在启动前复制到 `/tmp` 并 `chmod +x`，这部分需要按平台补适配。
+
+## GitHub Actions 私有运行
+
+仓库根目录已提供 `.github/workflows/probe-xray-ipv4.yml`。它不是定时任务，只能手动运行，适合放在 private repo 里当一次性探测器。
+
+私有运行步骤：
+
+1. 把项目推到 GitHub private repository。
+2. 进入 `Settings -> Secrets and variables -> Actions -> Repository secrets`。
+3. 按你的输入形态新增 secret，三选一即可：
+   - `XRAY_SHARE_LINK`: 单个节点链接。
+   - `XRAY_SHARE_LINKS`: 多个节点链接，一行一个，适合 4 个 UUID 不同的节点。
+   - `XRAY_SUBSCRIPTION_URLS`: 多个订阅 URL，一行一个，Action 会临时拉取并提取节点链接。
+4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
+5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
+6. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
+
+如果 4 个节点只是 UUID 不同、服务器和传输参数完全一样，通常出口 IPv4 也一样。为了省额度，建议先把 `max_nodes` 设为 `1` 验证出口；只有怀疑某个 UUID 权限不同或可用性不同，再设为 `4` 全部测。
+
+额度控制：
+
+- 只支持 `workflow_dispatch` 手动触发，没有 `schedule`。
+- `timeout-minutes: 5`，单次最多跑 5 分钟。
+- `concurrency.cancel-in-progress: true`，重复点击会取消上一次。
+- `max_nodes` 默认 `4`，最多允许 `20`，避免订阅里节点太多导致长时间运行。
+- secret 缺失会在下载 xray 前停止，避免空跑。
+- 不上传 artifact，不保存临时 Xray 配置。
+
+泄露控制：
+
+- 节点链接只从 GitHub Secrets 读取。
+- workflow 会逐行对节点链接和订阅 URL 执行 `add-mask`。
+- 不要在 workflow 里添加 `env`、`printenv`、`set -x` 或 `echo $XRAY_SHARE_LINK`。
+- 不建议给 public repo 或 fork PR 开启带 secret 的运行。
+
+## 安全注意
+
+- 不要把真实节点 JSON 提交到仓库。
+- 公网部署必须设置 `PROBE_TOKEN`。
+- 函数超时时间建议大于 `PROBE_TIMEOUT_MS + 5s`。
+- 并发请求会各自启动一个 Xray 进程，生产环境需要加调用频率限制。

@@ -1,0 +1,99 @@
+name: Probe Xray IPv4
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_name:
+        description: Display name for this probe run
+        required: false
+        default: github-actions-probe
+      timeout_ms:
+        description: Probe timeout in milliseconds
+        required: false
+        default: "15000"
+      max_nodes:
+        description: Maximum nodes to probe in this run
+        required: false
+        default: "4"
+      require_all_ok:
+        description: Fail workflow when any probed node fails
+        required: false
+        type: boolean
+        default: false
+      run_checks:
+        description: Run local syntax/tests before probing
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: probe-xray-ipv4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Probe IPv4 once
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Mask node secrets
+        run: |
+          mask_lines() {
+            printf '%s\n' "$1" | while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                echo "::add-mask::$line"
+              fi
+            done
+          }
+
+          mask_lines "${XRAY_SHARE_LINK}"
+          mask_lines "${XRAY_SHARE_LINKS}"
+          mask_lines "${XRAY_SUBSCRIPTION_URLS}"
+        env:
+          XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
+          XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
+          XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
+
+      - name: Validate required secret
+        run: |
+          if [ -z "${XRAY_SHARE_LINK}" ] && [ -z "${XRAY_SHARE_LINKS}" ] && [ -z "${XRAY_SUBSCRIPTION_URLS}" ]; then
+            echo "One of XRAY_SHARE_LINK, XRAY_SHARE_LINKS, or XRAY_SUBSCRIPTION_URLS is required."
+            exit 1
+          fi
+        env:
+          XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
+          XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
+          XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
+
+      - name: Download xray-core
+        run: |
+          mkdir -p bin
+          curl -fsSL -o /tmp/xray.zip \
+            https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+          unzip -q -o /tmp/xray.zip -d bin
+          chmod +x bin/xray
+
+      - name: Check JavaScript syntax
+        if: ${{ inputs.run_checks }}
+        run: npm run check
+
+      - name: Probe IPv4
+        env:
+          XRAY_BIN: ./bin/xray
+          XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
+          XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
+          XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
+          PROBE_NODE_NAME: ${{ inputs.node_name }}
+          PROBE_TIMEOUT_MS: ${{ inputs.timeout_ms }}
+          PROBE_MAX_NODES: ${{ inputs.max_nodes }}
+          REQUIRE_ALL_OK: ${{ inputs.require_all_ok && '1' || '0' }}
+        run: node src/run-probe.js

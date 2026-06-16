@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/probe-v4.js": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 30,
+      "memory": 512
+    }
+  }
+}

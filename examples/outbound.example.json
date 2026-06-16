@@ -1,0 +1,29 @@
+{
+  "node": "example-vless-node",
+  "timeoutMs": 15000,
+  "outbound": {
+    "protocol": "vless",
+    "settings": {
+      "vnext": [
+        {
+          "address": "example.com",
+          "port": 443,
+          "users": [
+            {
+              "id": "00000000-0000-0000-0000-000000000000",
+              "encryption": "none",
+              "flow": ""
+            }
+          ]
+        }
+      ]
+    },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "tls",
+      "tlsSettings": {
+        "serverName": "example.com"
+      }
+    }
+  }
+}

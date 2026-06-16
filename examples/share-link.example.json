@@ -1,0 +1,5 @@
+{
+  "node": "example-from-share-link",
+  "timeoutMs": 15000,
+  "shareLink": "vless://00000000-0000-0000-0000-000000000000@example.com:443?encryption=none&security=tls&type=tcp&sni=example.com#example-vless-node"
+}
