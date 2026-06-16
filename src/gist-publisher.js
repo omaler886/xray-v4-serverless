@@ -52,10 +52,21 @@ function buildGistFiles(plan, results, baseFilename) {
 
   for (const document of plan.subscriptionDocuments || []) {
     const documentResults = getDocumentResults(plan.inputs, results, document.documentIndex);
+
+    if (!hasPatchableResult(documentResults)) {
+      continue;
+    }
+
     const content = patchSubscriptionContent(document.content, documentResults);
     const filename = getGistFilename(baseFilename, document.documentIndex, plan.subscriptionDocuments.length);
 
     files[filename] = { content };
+  }
+
+  const directFile = buildDirectShareLinkFile(plan.inputs, results, baseFilename, files);
+
+  if (directFile) {
+    files[directFile.filename] = { content: directFile.content };
   }
 
   return files;
@@ -72,6 +83,56 @@ function getDocumentResults(inputs, results, documentIndex) {
     .filter((item) => item.input.source?.documentIndex === documentIndex)
     .sort((left, right) => left.input.source.nodeIndex - right.input.source.nodeIndex)
     .map((item) => item.result);
+}
+
+/**
+ * 功能说明：生成直接分享链接输入对应的 Gist 文件。
+ * 参数说明：inputs 为节点输入，results 为探测结果，baseFilename 为文件名，existingFiles 为已有文件。
+ * 返回值说明：有可发布内容时返回文件名和内容，否则返回 null。
+ */
+function buildDirectShareLinkFile(inputs, results, baseFilename, existingFiles) {
+  const directItems = inputs
+    .map((input, resultIndex) => ({ input, result: results[resultIndex] }))
+    .filter((item) => item.input.source?.type === 'direct' && item.input.shareLink);
+
+  if (directItems.length === 0 || !hasPatchableResult(directItems.map((item) => item.result))) {
+    return null;
+  }
+
+  const directContent = directItems.map((item) => item.input.shareLink).join('\n');
+  const directResults = directItems.map((item) => item.result);
+  const filename = Object.keys(existingFiles).length > 0
+    ? getDirectGistFilename(baseFilename)
+    : baseFilename;
+
+  return {
+    filename,
+    content: patchSubscriptionContent(directContent, directResults),
+  };
+}
+
+/**
+ * 功能说明：判断结果列表中是否有可用于替换 server 的成功 IPv4。
+ * 参数说明：results 为探测结果数组。
+ * 返回值说明：存在成功 IPv4 返回 true。
+ */
+function hasPatchableResult(results) {
+  return results.some((result) => result?.ok && result.ipv4);
+}
+
+/**
+ * 功能说明：生成直接链接发布文件名，避免和订阅文件冲突。
+ * 参数说明：baseFilename 为基础文件名。
+ * 返回值说明：返回直接链接文件名。
+ */
+function getDirectGistFilename(baseFilename) {
+  const dotIndex = baseFilename.lastIndexOf('.');
+
+  if (dotIndex === -1) {
+    return `${baseFilename}-direct`;
+  }
+
+  return `${baseFilename.slice(0, dotIndex)}-direct${baseFilename.slice(dotIndex)}`;
 }
 
 /**

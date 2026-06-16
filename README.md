@@ -230,8 +230,16 @@ GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知
 - 只在至少一个节点探测成功时发布。
 - 成功节点会把订阅里的 `server` 替换为探测出的 IPv4。
 - 支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
+- 如果输入是 `XRAY_SHARE_LINKS`，也会生成一个私密 Gist 文件。
 - 替换后的内容只写入 Gist，不会作为 artifact 上传，不会打印到日志。
 - 多个订阅会写成多个文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。
+- 某个订阅没有任何成功节点时，不会覆盖该订阅对应的 Gist 文件。
+
+公开仓库建议：
+
+- 把 `GIST_TOKEN`、`GIST_ID`、`XRAY_SUBSCRIPTION_URLS` 放在 `xray-probe` Environment secrets。
+- 给 `xray-probe` Environment 设置 required reviewers，避免误触发发布。
+- `publish_gist=true` 时仍保持 `reveal_results=false`。
 
 订阅返回 403 时：
 
