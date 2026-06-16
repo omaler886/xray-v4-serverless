@@ -3,6 +3,13 @@
 const SHARE_LINK_PATTERN = /\b(?:vless|vmess|trojan|ss):\/\/[^\s"'<>]+/gi;
 const DEFAULT_MAX_NODES = 4;
 const DEFAULT_SUBSCRIPTION_TIMEOUT_MS = 20000;
+const DEFAULT_SUBSCRIPTION_USER_AGENTS = [
+  'ClashforWindows/0.20.39',
+  'clash.meta',
+  'ClashX Pro/1.118.0.1',
+  'Shadowrocket/1997 CFNetwork/1496.0.7 Darwin/23.5.0',
+  'xray-v4-prober/1.0',
+];
 
 /**
  * 功能说明：从环境变量收集要探测的节点链接。
@@ -15,7 +22,7 @@ async function collectShareLinks(env = process.env, fetchImpl = globalThis.fetch
     ...splitMultilineSecret(env.XRAY_SHARE_LINKS),
   ];
   const subscriptionUrls = splitMultilineSecret(env.XRAY_SUBSCRIPTION_URLS);
-  const subscriptionLinks = await fetchSubscriptionLinks(subscriptionUrls, fetchImpl);
+  const subscriptionLinks = await fetchSubscriptionLinks(subscriptionUrls, env, fetchImpl);
   const maxNodes = getMaxNodes(env.PROBE_MAX_NODES);
 
   return dedupeLinks([...directLinks, ...subscriptionLinks]).slice(0, maxNodes);
@@ -39,10 +46,10 @@ function splitMultilineSecret(value) {
 
 /**
  * 功能说明：拉取订阅并提取分享链接。
- * 参数说明：subscriptionUrls 为订阅 URL 数组，fetchImpl 为 fetch 函数。
+ * 参数说明：subscriptionUrls 为订阅 URL 数组，env 为环境变量对象，fetchImpl 为 fetch 函数。
  * 返回值说明：返回订阅内提取出的分享链接数组。
  */
-async function fetchSubscriptionLinks(subscriptionUrls, fetchImpl) {
+async function fetchSubscriptionLinks(subscriptionUrls, env, fetchImpl) {
   if (subscriptionUrls.length === 0) {
     return [];
   }
@@ -52,8 +59,9 @@ async function fetchSubscriptionLinks(subscriptionUrls, fetchImpl) {
   }
 
   const links = [];
+  const userAgents = getSubscriptionUserAgents(env.SUBSCRIPTION_USER_AGENT);
   for (const subscriptionUrl of subscriptionUrls) {
-    const content = await fetchSubscription(subscriptionUrl, fetchImpl);
+    const content = await fetchSubscription(subscriptionUrl, userAgents, fetchImpl);
     links.push(...extractShareLinks(content));
   }
 
@@ -62,27 +70,62 @@ async function fetchSubscriptionLinks(subscriptionUrls, fetchImpl) {
 
 /**
  * 功能说明：下载单个订阅内容。
- * 参数说明：subscriptionUrl 为订阅地址，fetchImpl 为 fetch 函数。
+ * 参数说明：subscriptionUrl 为订阅地址，userAgents 为候选客户端 UA，fetchImpl 为 fetch 函数。
  * 返回值说明：返回订阅文本。
  */
-async function fetchSubscription(subscriptionUrl, fetchImpl) {
+async function fetchSubscription(subscriptionUrl, userAgents, fetchImpl) {
+  let lastStatus = null;
+
+  for (const userAgent of userAgents) {
+    const response = await fetchSubscriptionWithUserAgent(subscriptionUrl, userAgent, fetchImpl);
+
+    if (response.ok) {
+      return await response.text();
+    }
+
+    lastStatus = response.status;
+
+    // 403/429 常由 UA 或频率触发，换常见客户端 UA 再试。
+    if (response.status !== 403 && response.status !== 429) {
+      break;
+    }
+  }
+
+  throw new Error(`subscription returned status ${lastStatus}`);
+}
+
+/**
+ * 功能说明：使用指定 User-Agent 拉取订阅。
+ * 参数说明：subscriptionUrl 为订阅地址，userAgent 为客户端标识，fetchImpl 为 fetch 函数。
+ * 返回值说明：返回 fetch Response 对象。
+ */
+async function fetchSubscriptionWithUserAgent(subscriptionUrl, userAgent, fetchImpl) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_SUBSCRIPTION_TIMEOUT_MS);
 
   try {
-    const response = await fetchImpl(subscriptionUrl, {
-      headers: { 'user-agent': 'xray-v4-prober/1.0' },
+    return await fetchImpl(subscriptionUrl, {
+      headers: {
+        accept: '*/*',
+        'user-agent': userAgent,
+      },
       signal: controller.signal,
     });
-
-    if (!response.ok) {
-      throw new Error(`subscription returned status ${response.status}`);
-    }
-
-    return await response.text();
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * 功能说明：整理订阅拉取使用的 User-Agent 列表。
+ * 参数说明：customUserAgent 为用户指定的客户端 UA。
+ * 返回值说明：返回去重后的 UA 数组。
+ */
+function getSubscriptionUserAgents(customUserAgent) {
+  return dedupeLinks([
+    ...splitMultilineSecret(customUserAgent),
+    ...DEFAULT_SUBSCRIPTION_USER_AGENTS,
+  ]);
 }
 
 /**

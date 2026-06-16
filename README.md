@@ -182,6 +182,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
    - `XRAY_SHARE_LINK`: 单个节点链接。
    - `XRAY_SHARE_LINKS`: 多个节点链接，一行一个，适合 4 个 UUID 不同的节点。
    - `XRAY_SUBSCRIPTION_URLS`: 多个订阅 URL，一行一个，Action 会临时拉取并提取节点链接。
+   - `SUBSCRIPTION_USER_AGENT`: 可选。订阅服务返回 403 时，可以填它要求的客户端 UA。
 4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
 5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
 6. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
@@ -203,6 +204,13 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - workflow 会逐行对节点链接和订阅 URL 执行 `add-mask`。
 - 不要在 workflow 里添加 `env`、`printenv`、`set -x` 或 `echo $XRAY_SHARE_LINK`。
 - 不建议给 public repo 或 fork PR 开启带 secret 的运行。
+
+订阅返回 403 时：
+
+- 优先确认订阅 URL 在 GitHub Actions 所在网络能访问。
+- 当前脚本会自动尝试 `ClashforWindows`、`clash.meta`、`ClashX Pro`、`Shadowrocket` 等常见 User-Agent。
+- 如果机场要求固定客户端标识，把该值放到 `SUBSCRIPTION_USER_AGENT` secret。
+- 如果服务商封锁 GitHub Actions IP，只能改用 `XRAY_SHARE_LINKS` 直接放节点链接，或换自托管 runner。
 
 ## 安全注意
 

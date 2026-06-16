@@ -37,6 +37,31 @@ assert.deepEqual(extractShareLinks(encodedSubscription), [vlessLink, ssLink]);
   );
 
   assert.deepEqual(links, [vlessLink, trojanLink]);
+
+  const userAgents = [];
+  const fallbackFetch = async (_url, options) => {
+    userAgents.push(options.headers['user-agent']);
+
+    if (userAgents.length === 1) {
+      return { ok: false, status: 403 };
+    }
+
+    return {
+      ok: true,
+      text: async () => vlessLink,
+    };
+  };
+  const fallbackLinks = await collectShareLinks(
+    {
+      XRAY_SUBSCRIPTION_URLS: 'https://example.com/sub',
+      SUBSCRIPTION_USER_AGENT: 'BlockedClient/1.0',
+      PROBE_MAX_NODES: '1',
+    },
+    fallbackFetch,
+  );
+
+  assert.deepEqual(fallbackLinks, [vlessLink]);
+  assert.deepEqual(userAgents.slice(0, 2), ['BlockedClient/1.0', 'ClashforWindows/0.20.39']);
   console.log('probe input tests passed');
 })().catch((error) => {
   console.error(error);

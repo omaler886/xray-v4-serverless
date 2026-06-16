@@ -60,10 +60,12 @@ jobs:
           mask_lines "${XRAY_SHARE_LINK}"
           mask_lines "${XRAY_SHARE_LINKS}"
           mask_lines "${XRAY_SUBSCRIPTION_URLS}"
+          mask_lines "${SUBSCRIPTION_USER_AGENT}"
         env:
           XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
           XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
           XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
+          SUBSCRIPTION_USER_AGENT: ${{ secrets.SUBSCRIPTION_USER_AGENT }}
 
       - name: Validate required secret
         run: |
@@ -94,6 +96,7 @@ jobs:
           XRAY_SHARE_LINK: ${{ secrets.XRAY_SHARE_LINK }}
           XRAY_SHARE_LINKS: ${{ secrets.XRAY_SHARE_LINKS }}
           XRAY_SUBSCRIPTION_URLS: ${{ secrets.XRAY_SUBSCRIPTION_URLS }}
+          SUBSCRIPTION_USER_AGENT: ${{ secrets.SUBSCRIPTION_USER_AGENT }}
           PROBE_NODE_NAME: ${{ inputs.node_name }}
           PROBE_TIMEOUT_MS: ${{ inputs.timeout_ms }}
           PROBE_MAX_NODES: ${{ inputs.max_nodes }}
