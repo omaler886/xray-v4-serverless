@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   collectProbeInputs,
   collectShareLinks,
+  describeSubscriptionContent,
   extractProbeInputs,
   extractShareLinks,
   splitMultilineSecret,
@@ -111,7 +112,7 @@ assert.equal(singBoxInputs[0].outbound.streamSettings.tlsSettings.fingerprint, '
   );
 
   assert.deepEqual(fallbackLinks, [vlessLink]);
-  assert.deepEqual(userAgents.slice(0, 2), ['BlockedClient/1.0', 'ClashforWindows/0.20.39']);
+  assert.deepEqual(userAgents.slice(0, 2), ['BlockedClient/1.0', 'sing-box/1.12.0']);
 
   const yamlFetch = async () => ({
     ok: true,
@@ -142,6 +143,10 @@ assert.equal(singBoxInputs[0].outbound.streamSettings.tlsSettings.fingerprint, '
 
   assert.equal(singBoxProbeInputs.length, 1);
   assert.equal(singBoxProbeInputs[0].outbound.protocol, 'vless');
+
+  const summary = JSON.parse(describeSubscriptionContent('<html>not a subscription</html>'));
+  assert.equal(summary.length > 0, true);
+  assert.equal(summary.hasShareLinks, false);
   console.log('probe input tests passed');
 })().catch((error) => {
   console.error(error);

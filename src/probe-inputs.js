@@ -6,6 +6,9 @@ const SHARE_LINK_PATTERN = /\b(?:vless|vmess|trojan|ss):\/\/[^\s"'<>]+/gi;
 const DEFAULT_MAX_NODES = 4;
 const DEFAULT_SUBSCRIPTION_TIMEOUT_MS = 20000;
 const DEFAULT_SUBSCRIPTION_USER_AGENTS = [
+  'sing-box/1.12.0',
+  'v2rayN/7.0',
+  'NekoBox/4.0',
   'ClashforWindows/0.20.39',
   'clash.meta',
   'ClashX Pro/1.118.0.1',
@@ -74,7 +77,13 @@ async function fetchSubscriptionInputs(subscriptionUrls, env, fetchImpl) {
   const userAgents = getSubscriptionUserAgents(env.SUBSCRIPTION_USER_AGENT);
   for (const subscriptionUrl of subscriptionUrls) {
     const content = await fetchSubscription(subscriptionUrl, userAgents, fetchImpl);
-    inputs.push(...extractProbeInputs(content));
+    const extractedInputs = extractProbeInputs(content);
+
+    if (extractedInputs.length === 0) {
+      console.error(`subscription format summary: ${describeSubscriptionContent(content)}`);
+    }
+
+    inputs.push(...extractedInputs);
   }
 
   return inputs;
@@ -205,9 +214,28 @@ function matchShareLinks(content) {
  */
 function extractClashYamlInputs(content) {
   const parsedConfig = parseYaml(content);
-  const proxies = Array.isArray(parsedConfig?.proxies) ? parsedConfig.proxies : [];
+  const proxies = getYamlProxyList(parsedConfig);
 
   return proxies.map(convertClashProxy).filter(Boolean);
+}
+
+/**
+ * 功能说明：读取 Clash/Mihomo YAML 中的 proxies 列表。
+ * 参数说明：parsedConfig 为 YAML 解析结果。
+ * 返回值说明：返回代理数组。
+ */
+function getYamlProxyList(parsedConfig) {
+  if (!parsedConfig || typeof parsedConfig !== 'object') {
+    return [];
+  }
+
+  for (const key of ['proxies', 'Proxies', 'proxy', 'Proxy']) {
+    if (Array.isArray(parsedConfig[key])) {
+      return parsedConfig[key];
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -500,6 +528,53 @@ function parseJson(content) {
  */
 function getArrayConfig(parsedConfig) {
   return Array.isArray(parsedConfig) ? parsedConfig : [];
+}
+
+/**
+ * 功能说明：生成订阅内容的安全格式摘要，帮助排查解析失败。
+ * 参数说明：content 为订阅响应正文。
+ * 返回值说明：返回不包含正文和节点密钥的摘要字符串。
+ */
+function describeSubscriptionContent(content) {
+  const text = String(content);
+  const jsonConfig = parseJson(text);
+  const yamlConfig = parseYaml(text);
+  const decodedText = decodeBase64(text);
+  const decodedJsonConfig = parseJson(decodedText);
+  const decodedYamlConfig = parseYaml(decodedText);
+
+  return JSON.stringify({
+    length: text.length,
+    hasShareLinks: matchShareLinks(text).length > 0,
+    json: describeParsedConfig(jsonConfig),
+    yaml: describeParsedConfig(yamlConfig),
+    decodedLength: decodedText === text ? 0 : decodedText.length,
+    decodedHasShareLinks: decodedText === text ? false : matchShareLinks(decodedText).length > 0,
+    decodedJson: describeParsedConfig(decodedJsonConfig),
+    decodedYaml: describeParsedConfig(decodedYamlConfig),
+  });
+}
+
+/**
+ * 功能说明：描述解析后配置的结构，不包含字段值。
+ * 参数说明：config 为 JSON/YAML 解析结果。
+ * 返回值说明：返回结构摘要。
+ */
+function describeParsedConfig(config) {
+  if (!config || typeof config !== 'object') {
+    return { type: typeof config };
+  }
+
+  if (Array.isArray(config)) {
+    return { type: 'array', length: config.length };
+  }
+
+  return {
+    type: 'object',
+    keys: Object.keys(config).slice(0, 20),
+    proxies: getYamlProxyList(config).length,
+    outbounds: Array.isArray(config.outbounds) ? config.outbounds.length : 0,
+  };
 }
 
 /**
@@ -821,6 +896,7 @@ function decodeBase64(value) {
 module.exports = {
   collectProbeInputs,
   collectShareLinks,
+  describeSubscriptionContent,
   extractProbeInputs,
   extractShareLinks,
   splitMultilineSecret,
