@@ -2,7 +2,9 @@
 
 const assert = require('node:assert/strict');
 const {
+  collectProbeInputs,
   collectShareLinks,
+  extractProbeInputs,
   extractShareLinks,
   splitMultilineSecret,
 } = require('./probe-inputs');
@@ -21,6 +23,27 @@ assert.deepEqual(extractShareLinks(`${vlessLink}\n${trojanLink}`), [vlessLink, t
 
 const encodedSubscription = Buffer.from(`${vlessLink}\n${ssLink}`).toString('base64');
 assert.deepEqual(extractShareLinks(encodedSubscription), [vlessLink, ssLink]);
+
+const clashYaml = `
+proxies:
+  - name: yaml-vless
+    type: vless
+    server: example.com
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000000
+    network: ws
+    tls: true
+    servername: example.com
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+`;
+const yamlInputs = extractProbeInputs(clashYaml);
+assert.equal(yamlInputs.length, 1);
+assert.equal(yamlInputs[0].nodeName, 'yaml-vless');
+assert.equal(yamlInputs[0].outbound.protocol, 'vless');
+assert.equal(yamlInputs[0].outbound.streamSettings.wsSettings.headers.Host, 'cdn.example.com');
 
 (async () => {
   const fakeFetch = async () => ({
@@ -62,6 +85,21 @@ assert.deepEqual(extractShareLinks(encodedSubscription), [vlessLink, ssLink]);
 
   assert.deepEqual(fallbackLinks, [vlessLink]);
   assert.deepEqual(userAgents.slice(0, 2), ['BlockedClient/1.0', 'ClashforWindows/0.20.39']);
+
+  const yamlFetch = async () => ({
+    ok: true,
+    text: async () => clashYaml,
+  });
+  const probeInputs = await collectProbeInputs(
+    {
+      XRAY_SUBSCRIPTION_URLS: 'https://example.com/clash.yaml',
+      PROBE_MAX_NODES: '1',
+    },
+    yamlFetch,
+  );
+
+  assert.equal(probeInputs.length, 1);
+  assert.equal(probeInputs[0].outbound.protocol, 'vless');
   console.log('probe input tests passed');
 })().catch((error) => {
   console.error(error);
