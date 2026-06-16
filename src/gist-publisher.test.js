@@ -2,7 +2,11 @@
 
 const assert = require('node:assert/strict');
 const YAML = require('yaml');
-const { buildGistFiles, patchSubscriptionContent } = require('./gist-publisher');
+const {
+  buildGistFiles,
+  patchSubscriptionContent,
+  publishPatchedSubscriptions,
+} = require('./gist-publisher');
 
 const results = [
   {
@@ -69,4 +73,25 @@ assert.equal(directFiles['patched.txt'].content.includes('@203.0.113.10:443'), t
 const failedFiles = buildGistFiles(plan, [{ ok: false, ipv4: null }], 'patched.json');
 assert.deepEqual(failedFiles, {});
 
-console.log('gist publisher tests passed');
+(async () => {
+  let didCallFetch = false;
+  const didPublish = await publishPatchedSubscriptions(
+    plan,
+    results,
+    {
+      PUBLISH_GIST: '1',
+      PUBLISH_GIST_DRY_RUN: '1',
+    },
+    async () => {
+      didCallFetch = true;
+      return { ok: true };
+    },
+  );
+
+  assert.equal(didPublish, true);
+  assert.equal(didCallFetch, false);
+  console.log('gist publisher tests passed');
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

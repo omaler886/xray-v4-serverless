@@ -190,7 +190,8 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
 6. 默认不显示节点名、出口 IPv4 和详细错误；私有调试时才打开 `reveal_results`。
 7. 默认不发布替换后的订阅；需要写入 Gist 时才打开 `publish_gist`。
-8. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
+8. 没配置 `GIST_TOKEN` 前，可以同时打开 `publish_gist` 和 `publish_gist_dry_run`，只验证生成，不写入 Gist。
+9. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
 
 如果 4 个节点只是 UUID 不同、服务器和传输参数完全一样，通常出口 IPv4 也一样。为了省额度，建议先把 `max_nodes` 设为 `1` 验证出口；只有怀疑某个 UUID 权限不同或可用性不同，再设为 `4` 全部测。
 
@@ -204,6 +205,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - 不上传 artifact，不保存临时 Xray 配置。
 - `reveal_results` 默认 `false`，公开日志只显示成功数量和是否拿到 IPv4，不显示具体 IP。
 - `publish_gist` 默认 `false`，避免误覆盖私密订阅。
+- `publish_gist_dry_run` 可在没有 `GIST_TOKEN` 时验证补丁生成，不会更新 Gist。
 
 泄露控制：
 
@@ -224,6 +226,7 @@ GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知
 2. 记录该 Gist 的 ID，放入仓库 secret：`GIST_ID`。
 3. 创建一个只用于 Gist 的 GitHub PAT，权限勾选 `gist`，放入仓库 secret：`GIST_TOKEN`。
 4. 手动运行 workflow，保持 `reveal_results=false`，打开 `publish_gist=true`。
+5. 首次建议同时打开 `publish_gist_dry_run=true` 验证生成链路；确认后再关闭 dry-run 正式写入。
 
 发布行为：
 

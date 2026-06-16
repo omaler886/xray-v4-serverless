@@ -14,14 +14,18 @@ async function publishPatchedSubscriptions(plan, results, env = process.env, fet
     return false;
   }
 
-  validateGistEnv(env);
-
   const files = buildGistFiles(plan, results, env.GIST_FILENAME || 'patched-subscription.txt');
 
   if (Object.keys(files).length === 0) {
     throw new Error('no patched subscription content was generated');
   }
 
+  if (env.PUBLISH_GIST_DRY_RUN === '1') {
+    console.log(`patched subscription dry-run generated: ${Object.keys(files).length} file(s)`);
+    return true;
+  }
+
+  validateGistEnv(env);
   await updateGist(env.GIST_ID, env.GIST_TOKEN, files, fetchImpl);
   console.log(`patched subscription published to secret gist: ${Object.keys(files).length} file(s)`);
   return true;
