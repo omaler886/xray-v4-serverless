@@ -4,6 +4,7 @@ const YAML = require('yaml');
 
 const SHARE_LINK_PATTERN = /\b(?:vless|vmess|trojan|ss):\/\/[^\s"'<>]+/gi;
 const DEFAULT_MAX_NODES = 4;
+const MAX_NODES = 100;
 const DEFAULT_SUBSCRIPTION_TIMEOUT_MS = 20000;
 const DEFAULT_SUBSCRIPTION_USER_AGENTS = [
   'sing-box/1.12.0',
@@ -875,13 +876,13 @@ function buildSingBoxGrpcSettings(outbound) {
 /**
  * 功能说明：解析单次最多探测节点数，避免 Actions 额度被误刷。
  * 参数说明：value 为 PROBE_MAX_NODES 环境变量。
- * 返回值说明：返回 1 到 20 之间的整数。
+ * 返回值说明：返回 1 到 100 之间的整数。
  */
 function getMaxNodes(value) {
   const maxNodes = Number(value || DEFAULT_MAX_NODES);
 
-  if (!Number.isInteger(maxNodes) || maxNodes < 1 || maxNodes > 20) {
-    throw new Error('PROBE_MAX_NODES must be an integer between 1 and 20');
+  if (!Number.isInteger(maxNodes) || maxNodes < 1 || maxNodes > MAX_NODES) {
+    throw new Error(`PROBE_MAX_NODES must be an integer between 1 and ${MAX_NODES}`);
   }
 
   return maxNodes;

@@ -89,6 +89,23 @@ assert.equal(singBoxInputs[0].outbound.streamSettings.tlsSettings.fingerprint, '
 
   assert.deepEqual(links, [vlessLink, trojanLink]);
 
+  const manyLinks = Array.from({ length: 21 }, (_item, index) =>
+    vlessLink.replace('#one', `#node-${index + 1}`),
+  ).join('\n');
+  const limitedLinks = await collectShareLinks(
+    {
+      XRAY_SHARE_LINKS: manyLinks,
+      PROBE_MAX_NODES: '21',
+    },
+    fakeFetch,
+  );
+
+  assert.equal(limitedLinks.length, 21);
+  await assert.rejects(
+    () => collectShareLinks({ XRAY_SHARE_LINKS: manyLinks, PROBE_MAX_NODES: '101' }, fakeFetch),
+    /between 1 and 100/,
+  );
+
   const userAgents = [];
   const fallbackFetch = async (_url, options) => {
     userAgents.push(options.headers['user-agent']);

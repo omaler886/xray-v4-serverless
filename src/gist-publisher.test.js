@@ -116,6 +116,20 @@ assert.deepEqual(failedFiles, {});
 
   assert.equal(didPublish, true);
   assert.equal(didCallFetch, false);
+
+  await assert.rejects(
+    () => publishPatchedSubscriptions(
+      plan,
+      [{ ok: true, ipv4: 'not-ipv4' }],
+      {
+        PUBLISH_GIST: '1',
+        PUBLISH_GIST_DRY_RUN: '1',
+      },
+      async () => ({ ok: true }),
+    ),
+    /non-IPv4 proxy server/,
+  );
+
   console.log('gist publisher tests passed');
 })().catch((error) => {
   console.error(error);

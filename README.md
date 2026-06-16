@@ -188,7 +188,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
    - `GIST_FILENAME`: 可选。默认 `patched-subscription.txt`。
    - `GIST_OUTPUT_FORMAT`: 可选。默认输出 `vless://`、`vmess://`、`trojan://`、`ss://` 分享链接；只有设为 `original` 才保留原订阅格式。
 4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
-5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
+5. 默认最多探测 4 个节点；需要完整处理订阅可把 `max_nodes` 改成 `100`。
 6. 默认不显示节点名、出口 IPv4 和详细错误；私有调试时才打开 `reveal_results`。
 7. 默认不发布替换后的订阅；需要写入 Gist 时才打开 `publish_gist`。
 8. 没配置 `GIST_TOKEN` 前，可以同时打开 `publish_gist` 和 `publish_gist_dry_run`，只验证生成，不写入 Gist。
@@ -199,9 +199,10 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 额度控制：
 
 - 只支持 `workflow_dispatch` 手动触发，没有 `schedule`。
-- `timeout-minutes: 5`，单次最多跑 5 分钟。
+- `timeout-minutes: 30`，允许一次处理较大的订阅。
 - `concurrency.cancel-in-progress: true`，重复点击会取消上一次。
-- `max_nodes` 默认 `4`，最多允许 `20`，避免订阅里节点太多导致长时间运行。
+- `max_nodes` 默认 `4`，最多允许 `100`；公开仓库实测建议先小批量，确认后再跑满。
+- `probe_concurrency` 默认 `4`，最多允许 `10`，避免同时启动过多 Xray 进程。
 - secret 缺失会在下载 xray 前停止，避免空跑。
 - 不上传 artifact，不保存临时 Xray 配置。
 - `reveal_results` 默认 `false`，公开日志只显示成功数量和是否拿到 IPv4，不显示具体 IP。
@@ -236,6 +237,7 @@ GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知
 - 默认发布为一行一个的分享链接订阅，输出是 `vless://`、`vmess://`、`trojan://`、`ss://`，不会输出 sing-box JSON。
 - 输入仍支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
 - 如果确实想保持输入原格式，把 `GIST_OUTPUT_FORMAT` secret 设为 `original`。
+- 默认分享链接输出会跳过探测失败的节点；写入 Gist 前会校验每条输出节点的 server 都是 IPv4。
 - 如果输入是 `XRAY_SHARE_LINKS`，也会生成一个私密 Gist 文件。
 - 替换后的内容只写入 Gist，不会作为 artifact 上传，不会打印到日志。
 - 多个订阅会写成多个文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。

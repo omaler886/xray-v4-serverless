@@ -1,5 +1,6 @@
 'use strict';
 
+const { isIPv4 } = require('node:net');
 const YAML = require('yaml');
 
 const SHARE_LINK_PATTERN = /\b(?:vless|vmess|trojan|ss):\/\/[^\s"'<>]+/gi;
@@ -14,13 +15,16 @@ async function publishPatchedSubscriptions(plan, results, env = process.env, fet
     return false;
   }
 
+  const outputFormat = env.GIST_OUTPUT_FORMAT || 'share-links';
   const files = buildGistFiles(plan, results, env.GIST_FILENAME || 'patched-subscription.txt', {
-    outputFormat: env.GIST_OUTPUT_FORMAT || 'share-links',
+    outputFormat,
   });
 
   if (Object.keys(files).length === 0) {
     throw new Error('no patched subscription content was generated');
   }
+
+  validateGeneratedFiles(files, outputFormat);
 
   if (env.PUBLISH_GIST_DRY_RUN === '1') {
     console.log(`patched subscription dry-run generated: ${Object.keys(files).length} file(s)`);
@@ -46,6 +50,83 @@ function validateGistEnv(env) {
   if (!env.GIST_ID) {
     throw new Error('GIST_ID secret is required when publish_gist is enabled');
   }
+}
+
+/**
+ * 功能说明：发布前校验默认分享链接输出只包含 IPv4 server。
+ * 参数说明：files 为待发布文件，outputFormat 为输出格式。
+ * 返回值说明：无，发现非 IPv4 server 时抛错。
+ */
+function validateGeneratedFiles(files, outputFormat) {
+  if ((outputFormat || 'share-links') !== 'share-links') {
+    return;
+  }
+
+  for (const [filename, file] of Object.entries(files)) {
+    validateShareLinkFile(filename, file.content);
+  }
+}
+
+/**
+ * 功能说明：校验分享链接文件中的每个节点都指向 IPv4。
+ * 参数说明：filename 为文件名，content 为文件内容。
+ * 返回值说明：无，发现不可解析或非 IPv4 时抛错。
+ */
+function validateShareLinkFile(filename, content) {
+  const links = String(content).split(/\r?\n/).filter(Boolean);
+
+  for (const link of links) {
+    const server = getShareLinkServer(link);
+
+    // 公开日志不能泄露链接本体，只报告文件名和错误类型。
+    if (!server || !isIPv4(server)) {
+      throw new Error(`generated gist file ${filename} contains a non-IPv4 proxy server`);
+    }
+  }
+}
+
+/**
+ * 功能说明：从分享链接中读取 server 地址。
+ * 参数说明：shareLink 为 vless/vmess/trojan/ss 链接。
+ * 返回值说明：返回 server 字符串，解析失败返回空字符串。
+ */
+function getShareLinkServer(shareLink) {
+  if (shareLink.startsWith('vmess://')) {
+    return getVmessServer(shareLink);
+  }
+
+  if (shareLink.startsWith('ss://')) {
+    return getShadowsocksServer(shareLink);
+  }
+
+  return new URL(shareLink).hostname;
+}
+
+/**
+ * 功能说明：读取 VMess 分享链接中的 add 字段。
+ * 参数说明：shareLink 为 vmess:// 链接。
+ * 返回值说明：返回 server 字符串。
+ */
+function getVmessServer(shareLink) {
+  const encodedPayload = shareLink.slice('vmess://'.length).split('#')[0];
+  const config = JSON.parse(decodeBase64(encodedPayload));
+
+  return config.add || '';
+}
+
+/**
+ * 功能说明：读取 Shadowsocks 分享链接中的 server。
+ * 参数说明：shareLink 为 ss:// 链接。
+ * 返回值说明：返回 server 字符串。
+ */
+function getShadowsocksServer(shareLink) {
+  const atIndex = shareLink.lastIndexOf('@');
+
+  if (atIndex === -1) {
+    return '';
+  }
+
+  return new URL(`ss://placeholder@${shareLink.slice(atIndex + 1)}`).hostname;
 }
 
 /**
