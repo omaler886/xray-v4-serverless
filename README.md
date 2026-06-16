@@ -185,7 +185,8 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
    - `SUBSCRIPTION_USER_AGENT`: 可选。订阅服务返回 403 时，可以填它要求的客户端 UA。
 4. 进入 `Actions -> Probe Xray IPv4 -> Run workflow`。
 5. 默认最多探测 4 个节点；需要更少就把 `max_nodes` 改成 `1` 或 `2`。
-6. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
+6. 默认不显示节点名、出口 IPv4 和详细错误；私有调试时才打开 `reveal_results`。
+7. 默认不跑测试，只执行一次探测；需要检查代码时再打开 `run_checks`。
 
 如果 4 个节点只是 UUID 不同、服务器和传输参数完全一样，通常出口 IPv4 也一样。为了省额度，建议先把 `max_nodes` 设为 `1` 验证出口；只有怀疑某个 UUID 权限不同或可用性不同，再设为 `4` 全部测。
 
@@ -197,6 +198,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - `max_nodes` 默认 `4`，最多允许 `20`，避免订阅里节点太多导致长时间运行。
 - secret 缺失会在下载 xray 前停止，避免空跑。
 - 不上传 artifact，不保存临时 Xray 配置。
+- `reveal_results` 默认 `false`，公开日志只显示成功数量和是否拿到 IPv4，不显示具体 IP。
 
 泄露控制：
 
@@ -204,6 +206,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - workflow 会逐行对节点链接和订阅 URL 执行 `add-mask`。
 - 不要在 workflow 里添加 `env`、`printenv`、`set -x` 或 `echo $XRAY_SHARE_LINK`。
 - 不建议给 public repo 或 fork PR 开启带 secret 的运行。
+- 公开仓库不要打开 `reveal_results`，否则节点名、出口 IPv4 和详细错误会进入公开 Actions 日志。
 
 订阅返回 403 时：
 

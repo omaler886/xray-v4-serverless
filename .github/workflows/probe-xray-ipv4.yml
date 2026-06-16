@@ -20,6 +20,11 @@ on:
         required: false
         type: boolean
         default: false
+      reveal_results:
+        description: Print node names, IPv4 addresses, and detailed errors
+        required: false
+        type: boolean
+        default: false
       run_checks:
         description: Run local syntax/tests before probing
         required: false
@@ -104,4 +109,5 @@ jobs:
           PROBE_TIMEOUT_MS: ${{ inputs.timeout_ms }}
           PROBE_MAX_NODES: ${{ inputs.max_nodes }}
           REQUIRE_ALL_OK: ${{ inputs.require_all_ok && '1' || '0' }}
+          REVEAL_RESULTS: ${{ inputs.reveal_results && '1' || '0' }}
         run: node src/run-probe.js

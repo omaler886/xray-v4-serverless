@@ -28,7 +28,7 @@ async function runProbe() {
     results,
   };
 
-  console.log(JSON.stringify(summary, null, 2));
+  console.log(JSON.stringify(getPrintableSummary(summary), null, 2));
 
   if (!summary.ok || shouldRequireAllOk(summary)) {
     process.exitCode = 1;
@@ -66,6 +66,41 @@ function buildNodeName(index) {
  */
 function shouldRequireAllOk(summary) {
   return process.env.REQUIRE_ALL_OK === '1' && summary.failed > 0;
+}
+
+/**
+ * 功能说明：根据环境变量决定输出完整结果还是公开安全摘要。
+ * 参数说明：summary 为原始探测结果汇总。
+ * 返回值说明：返回适合打印到 Actions 日志的对象。
+ */
+function getPrintableSummary(summary) {
+  if (process.env.REVEAL_RESULTS === '1') {
+    return summary;
+  }
+
+  return redactSummary(summary);
+}
+
+/**
+ * 功能说明：隐藏节点名、出口 IP 和详细错误，避免公开仓库日志泄露信息。
+ * 参数说明：summary 为原始探测结果汇总。
+ * 返回值说明：返回脱敏后的摘要对象。
+ */
+function redactSummary(summary) {
+  return {
+    ok: summary.ok,
+    total: summary.total,
+    success: summary.success,
+    failed: summary.failed,
+    results: summary.results.map((result, index) => ({
+      node: `node-${index + 1}`,
+      ok: result.ok,
+      hasIpv4: Boolean(result.ipv4),
+      provider: result.provider,
+      latencyMs: result.latencyMs,
+      error: result.ok ? null : 'probe failed',
+    })),
+  };
 }
 
 runProbe().catch((error) => {
