@@ -199,11 +199,12 @@ function startXray(xrayPath, configPath) {
   });
 
   xrayProcess.startupError = null;
+  xrayProcess.stderrText = '';
   xrayProcess.on('error', (error) => {
     xrayProcess.startupError = error;
   });
-  xrayProcess.stderr.on('data', () => {
-    // xray 日志可能含节点信息，探测服务不转发原始日志。
+  xrayProcess.stderr.on('data', (data) => {
+    xrayProcess.stderrText = `${xrayProcess.stderrText}${data.toString('utf8')}`.slice(-2000);
   });
 
   return xrayProcess;
@@ -382,7 +383,11 @@ async function waitForXrayProxy(xrayProcess, proxyPort, timeoutMs) {
     }
 
     if (xrayProcess.exitCode !== null) {
-      throw new Error(`xray exited before local proxy was ready: ${xrayProcess.exitCode}`);
+      throw new Error(
+        `xray exited before local proxy was ready: ${xrayProcess.exitCode}${formatXrayStderr(
+          xrayProcess,
+        )}`,
+      );
     }
 
     if (await canConnect('127.0.0.1', proxyPort)) {
@@ -393,6 +398,21 @@ async function waitForXrayProxy(xrayProcess, proxyPort, timeoutMs) {
   }
 
   throw new Error('xray local proxy did not start before timeout');
+}
+
+/**
+ * 功能说明：格式化脱敏后的 Xray stderr，便于定位配置错误。
+ * 参数说明：xrayProcess 为子进程。
+ * 返回值说明：返回可拼接到错误里的日志片段。
+ */
+function formatXrayStderr(xrayProcess) {
+  const stderrText = redactSensitiveText(String(xrayProcess.stderrText || '').trim());
+
+  if (!stderrText) {
+    return '';
+  }
+
+  return `; stderr: ${stderrText.replace(/\s+/g, ' ').slice(0, 1000)}`;
 }
 
 /**
@@ -512,7 +532,12 @@ function redactSensitiveText(text) {
     redactedText = redactedText.replace(pattern, `$1${hashSecret(key)}$2`);
   }
 
-  return redactedText;
+  return redactedText
+    .replace(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+      '[redacted:uuid]',
+    )
+    .replace(/\b(?:vless|vmess|trojan|ss):\/\/[^\s"'<>]+/gi, '[redacted:share-link]');
 }
 
 /**

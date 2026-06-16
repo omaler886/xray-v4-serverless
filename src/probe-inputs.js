@@ -624,7 +624,7 @@ function convertSingBoxVless(outbound) {
             users: [
               {
                 id: outbound.uuid,
-                encryption: outbound.packet_encoding || 'none',
+                encryption: 'none',
                 ...(outbound.flow ? { flow: outbound.flow } : {}),
               },
             ],
