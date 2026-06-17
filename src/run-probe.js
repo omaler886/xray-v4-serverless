@@ -134,15 +134,75 @@ function redactSummary(summary) {
     total: summary.total,
     success: summary.success,
     failed: summary.failed,
+    failureCategories: summarizeFailureCategories(summary.results),
     results: summary.results.map((result, index) => ({
       node: `node-${index + 1}`,
       ok: result.ok,
       hasIpv4: Boolean(result.ipv4),
       provider: result.provider,
       latencyMs: result.latencyMs,
-      error: result.ok ? null : 'probe failed',
+      error: result.ok ? null : classifyProbeError(result.error),
     })),
   };
+}
+
+/**
+ * 功能说明：汇总失败类别，帮助公开日志排查而不泄露节点详情。
+ * 参数说明：results 为探测结果数组。
+ * 返回值说明：返回按失败类别计数的对象。
+ */
+function summarizeFailureCategories(results) {
+  const categories = {};
+
+  for (const result of results) {
+    if (result.ok) {
+      continue;
+    }
+
+    const category = classifyProbeError(result.error);
+    categories[category] = (categories[category] || 0) + 1;
+  }
+
+  return categories;
+}
+
+/**
+ * 功能说明：把具体错误归类成安全标签。
+ * 参数说明：error 为已脱敏错误字符串。
+ * 返回值说明：返回不会泄露节点信息的失败类别。
+ */
+function classifyProbeError(error) {
+  const message = String(error || '').toLowerCase();
+
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return 'timeout';
+  }
+
+  if (message.includes('xray exited') || message.includes('xray failed') || message.includes('not start')) {
+    return 'xray-start';
+  }
+
+  if (message.includes('proxy connect failed')) {
+    return 'proxy-connect';
+  }
+
+  if (message.includes('provider returned')) {
+    return 'provider-response';
+  }
+
+  if (message.includes('econnrefused') || message.includes('connection refused')) {
+    return 'connection-refused';
+  }
+
+  if (message.includes('enotfound') || message.includes('dns')) {
+    return 'dns';
+  }
+
+  if (message.includes('tls') || message.includes('handshake')) {
+    return 'tls';
+  }
+
+  return 'unknown';
 }
 
 runProbe().catch((error) => {
