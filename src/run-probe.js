@@ -194,6 +194,23 @@ function classifyProbeError(error) {
     return 'connection-refused';
   }
 
+  if (
+    message.includes('econnreset') ||
+    message.includes('socket hang up') ||
+    message.includes('unexpected eof') ||
+    message.includes('connection closed') ||
+    message.includes('closed pipe')
+  ) {
+    return 'connection-closed';
+  }
+
+  if (
+    message.includes('network socket disconnected') ||
+    message.includes('first record does not look like a tls handshake')
+  ) {
+    return 'tls-connect';
+  }
+
   if (message.includes('enotfound') || message.includes('dns')) {
     return 'dns';
   }
