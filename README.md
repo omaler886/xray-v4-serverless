@@ -203,6 +203,7 @@ curl.exe -X POST "http://127.0.0.1:8787/api/probe-v4" `
 - `concurrency.cancel-in-progress: true`，重复点击会取消上一次。
 - `max_nodes` 默认 `4`，最多允许 `100`；公开仓库实测建议先小批量，确认后再跑满。
 - `probe_concurrency` 默认 `4`，最多允许 `10`，避免同时启动过多 Xray 进程。
+- `probe_retries` 默认 `1`，最多允许 `3`，用于缓解节点临时断连或探测站点偶发失败。
 - secret 缺失会在下载 xray 前停止，避免空跑。
 - 不上传 artifact，不保存临时 Xray 配置。
 - `reveal_results` 默认 `false`，公开日志只显示成功数量和是否拿到 IPv4，不显示具体 IP。

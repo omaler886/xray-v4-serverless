@@ -6,6 +6,8 @@ const { collectProbePlan } = require('./probe-inputs');
 
 const DEFAULT_PROBE_CONCURRENCY = 4;
 const MAX_PROBE_CONCURRENCY = 10;
+const DEFAULT_PROBE_RETRIES = 1;
+const MAX_PROBE_RETRIES = 3;
 
 /**
  * 功能说明：从环境变量读取一个或多个节点并执行 IPv4 探测。
@@ -67,7 +69,29 @@ async function probeNodes(probeInputs, concurrency) {
  * 参数说明：probeInput 为分享链接或 outbound 输入，index 为顺序号。
  * 返回值说明：返回单个节点探测结果。
  */
-function probeNode(probeInput, index) {
+async function probeNode(probeInput, index) {
+  let result = null;
+  const retries = getProbeRetries(process.env.PROBE_RETRIES);
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    result = await probeNodeOnce(probeInput, index);
+
+    if (result.ok || attempt === retries) {
+      return result;
+    }
+
+    await sleep(500 * (attempt + 1));
+  }
+
+  return result;
+}
+
+/**
+ * 功能说明：执行一次节点 IPv4 探测。
+ * 参数说明：probeInput 为分享链接或 outbound 输入，index 为顺序号。
+ * 返回值说明：返回单次探测结果。
+ */
+function probeNodeOnce(probeInput, index) {
   return probeNodeIpv4({
     node: probeInput.nodeName || buildNodeName(index),
     shareLink: probeInput.shareLink,
@@ -108,6 +132,21 @@ function getProbeConcurrency(value) {
   }
 
   return concurrency;
+}
+
+/**
+ * 功能说明：解析失败重试次数，减少临时断连漏测。
+ * 参数说明：value 为 PROBE_RETRIES 环境变量。
+ * 返回值说明：返回 0 到 3 之间的整数。
+ */
+function getProbeRetries(value) {
+  const retries = Number(value ?? DEFAULT_PROBE_RETRIES);
+
+  if (!Number.isInteger(retries) || retries < 0 || retries > MAX_PROBE_RETRIES) {
+    throw new Error(`PROBE_RETRIES must be an integer between 0 and ${MAX_PROBE_RETRIES}`);
+  }
+
+  return retries;
 }
 
 /**
@@ -173,6 +212,11 @@ function summarizeFailureCategories(results) {
  */
 function classifyProbeError(error) {
   const message = String(error || '').toLowerCase();
+  const aggregatedCategory = getAggregatedFailureCategory(message);
+
+  if (aggregatedCategory) {
+    return aggregatedCategory;
+  }
 
   if (message.includes('timeout') || message.includes('timed out')) {
     return 'timeout';
@@ -220,6 +264,32 @@ function classifyProbeError(error) {
   }
 
   return 'unknown';
+}
+
+/**
+ * 功能说明：读取 provider 汇总错误中的主要失败类别。
+ * 参数说明：message 为错误消息。
+ * 返回值说明：返回出现次数最多的类别，无法识别返回空字符串。
+ */
+function getAggregatedFailureCategory(message) {
+  const matches = Array.from(message.matchAll(/([a-z-]+)=(\d+)/g));
+
+  if (matches.length === 0) {
+    return '';
+  }
+
+  return matches
+    .map((match) => ({ category: match[1], count: Number(match[2]) }))
+    .sort((left, right) => right.count - left.count)[0].category;
+}
+
+/**
+ * 功能说明：等待指定时间后重试，降低短暂网络抖动影响。
+ * 参数说明：ms 为等待毫秒数。
+ * 返回值说明：返回 Promise<void>。
+ */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 runProbe().catch((error) => {

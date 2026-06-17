@@ -14,6 +14,9 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_PROVIDERS = [
   'https://api.ipify.org',
   'https://ipv4.icanhazip.com',
+  'https://checkip.amazonaws.com',
+  'https://ipv4.ident.me',
+  'https://v4.ident.me',
   'https://ifconfig.co/ip',
 ];
 const IP_V4_PATTERN =
@@ -216,7 +219,7 @@ function startXray(xrayPath, configPath) {
  * 返回值说明：返回 provider 与 ipv4。
  */
 async function probeProviders(proxyPort, options) {
-  let lastError = null;
+  const errors = [];
 
   for (const provider of options.providers) {
     try {
@@ -229,11 +232,70 @@ async function probeProviders(proxyPort, options) {
 
       throw new Error(`provider returned non-ipv4 response: ${ipv4.slice(0, 64)}`);
     } catch (error) {
-      lastError = error;
+      errors.push(error);
     }
   }
 
-  throw lastError || new Error('all providers failed');
+  throw new Error(`all providers failed: ${summarizeProviderErrors(errors)}`);
+}
+
+/**
+ * 功能说明：汇总探测服务失败类型，避免只暴露最后一个 provider 的偶然错误。
+ * 参数说明：errors 为所有 provider 请求错误。
+ * 返回值说明：返回安全的失败类型计数字符串。
+ */
+function summarizeProviderErrors(errors) {
+  const categories = {};
+
+  for (const error of errors) {
+    const category = classifyProviderError(error);
+    categories[category] = (categories[category] || 0) + 1;
+  }
+
+  return Object.entries(categories)
+    .map(([category, count]) => `${category}=${count}`)
+    .join(',');
+}
+
+/**
+ * 功能说明：把 provider 请求错误归类成安全标签。
+ * 参数说明：error 为请求异常。
+ * 返回值说明：返回不会泄露节点信息的错误类别。
+ */
+function classifyProviderError(error) {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return 'timeout';
+  }
+
+  if (message.includes('provider returned')) {
+    return 'provider-response';
+  }
+
+  if (
+    message.includes('econnreset') ||
+    message.includes('socket hang up') ||
+    message.includes('unexpected eof') ||
+    message.includes('connection closed') ||
+    message.includes('closed pipe')
+  ) {
+    return 'connection-closed';
+  }
+
+  if (message.includes('econnrefused') || message.includes('connection refused')) {
+    return 'connection-refused';
+  }
+
+  if (message.includes('tls') || message.includes('handshake')) {
+    return 'tls';
+  }
+
+  if (message.includes('dns') || message.includes('enotfound')) {
+    return 'dns';
+  }
+
+  return 'unknown';
 }
 
 /**

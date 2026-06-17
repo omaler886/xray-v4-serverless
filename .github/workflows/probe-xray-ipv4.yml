@@ -19,6 +19,10 @@ on:
         description: Parallel probes, between 1 and 10
         required: false
         default: "4"
+      probe_retries:
+        description: Retries per failed node, between 0 and 3
+        required: false
+        default: "1"
       require_all_ok:
         description: Fail workflow when any probed node fails
         required: false
@@ -140,6 +144,7 @@ jobs:
           PROBE_TIMEOUT_MS: ${{ inputs.timeout_ms }}
           PROBE_MAX_NODES: ${{ inputs.max_nodes }}
           PROBE_CONCURRENCY: ${{ inputs.probe_concurrency }}
+          PROBE_RETRIES: ${{ inputs.probe_retries }}
           REQUIRE_ALL_OK: ${{ inputs.require_all_ok && '1' || '0' }}
           REVEAL_RESULTS: ${{ inputs.reveal_results && '1' || '0' }}
           PUBLISH_GIST: ${{ inputs.publish_gist && '1' || '0' }}
