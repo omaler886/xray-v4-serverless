@@ -79,6 +79,32 @@ assert.equal(Object.keys(files)[0], 'patched.txt');
 assert.equal(files['patched.txt'].content.startsWith('vless://'), true);
 assert.equal(files['patched.txt'].content.includes('@203.0.113.10:443'), true);
 
+const aggregatedPlan = {
+  subscriptionDocuments: [
+    { documentIndex: 0, content: singBoxJson },
+    { documentIndex: 1, content: singBoxJson },
+  ],
+  inputs: [
+    {
+      ...plan.inputs[0],
+      source: { type: 'subscription', documentIndex: 0, nodeIndex: 0 },
+    },
+    {
+      ...plan.inputs[0],
+      nodeName: 'test-two',
+      source: { type: 'subscription', documentIndex: 1, nodeIndex: 0 },
+    },
+  ],
+};
+const aggregatedFiles = buildGistFiles(
+  aggregatedPlan,
+  [{ ok: true, ipv4: '203.0.113.10' }, { ok: true, ipv4: '203.0.113.11' }],
+  'patched.txt',
+);
+assert.deepEqual(Object.keys(aggregatedFiles), ['patched.txt']);
+assert.equal(aggregatedFiles['patched.txt'].content.split('\n').length, 2);
+assert.equal(aggregatedFiles['patched.txt'].content.includes('@203.0.113.11:443'), true);
+
 const originalFiles = buildGistFiles(plan, results, 'patched.json', { outputFormat: 'original' });
 assert.equal(Object.keys(originalFiles)[0], 'patched.json');
 assert.equal(JSON.parse(originalFiles['patched.json'].content).outbounds[0].server, '203.0.113.10');
@@ -129,6 +155,47 @@ assert.deepEqual(failedFiles, {});
     ),
     /non-IPv4 proxy server/,
   );
+
+  let didPatchGist = false;
+  const didPublishForReal = await publishPatchedSubscriptions(
+    plan,
+    results,
+    {
+      PUBLISH_GIST: '1',
+      GIST_ID: 'gist-id',
+      GIST_TOKEN: 'gist-token',
+      GIST_FILENAME: 'patched.txt',
+    },
+    async (url, options) => {
+      if (options.method === 'GET') {
+        assert.equal(url.endsWith('/gist-id'), true);
+        return {
+          ok: true,
+          json: async () => ({
+            files: {
+              'patched.txt': {},
+              'patched-1.txt': {},
+              'patched-2.txt': {},
+              'patched-direct.txt': {},
+              'keep.txt': {},
+            },
+          }),
+        };
+      }
+
+      didPatchGist = true;
+      const body = JSON.parse(options.body);
+      assert.equal(body.files['patched.txt'].content.startsWith('vless://'), true);
+      assert.equal(body.files['patched-1.txt'], null);
+      assert.equal(body.files['patched-2.txt'], null);
+      assert.equal(body.files['patched-direct.txt'], null);
+      assert.equal(Object.hasOwn(body.files, 'keep.txt'), false);
+      return { ok: true };
+    },
+  );
+
+  assert.equal(didPublishForReal, true);
+  assert.equal(didPatchGist, true);
 
   console.log('gist publisher tests passed');
 })().catch((error) => {

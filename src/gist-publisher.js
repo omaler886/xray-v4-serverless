@@ -16,7 +16,8 @@ async function publishPatchedSubscriptions(plan, results, env = process.env, fet
   }
 
   const outputFormat = env.GIST_OUTPUT_FORMAT || 'share-links';
-  const files = buildGistFiles(plan, results, env.GIST_FILENAME || 'patched-subscription.txt', {
+  const baseFilename = env.GIST_FILENAME || 'patched-subscription.txt';
+  const files = buildGistFiles(plan, results, baseFilename, {
     outputFormat,
   });
 
@@ -32,7 +33,9 @@ async function publishPatchedSubscriptions(plan, results, env = process.env, fet
   }
 
   validateGistEnv(env);
-  await updateGist(env.GIST_ID, env.GIST_TOKEN, files, fetchImpl);
+  await updateGist(env.GIST_ID, env.GIST_TOKEN, files, fetchImpl, {
+    cleanupFilenames: getGistCleanupFilenames(baseFilename, outputFormat),
+  });
   console.log(`patched subscription published to secret gist: ${Object.keys(files).length} file(s)`);
   return true;
 }
@@ -169,27 +172,16 @@ function buildGistFiles(plan, results, baseFilename, options = {}) {
  * 返回值说明：返回 GitHub Gist files 对象。
  */
 function buildShareLinkGistFiles(plan, results, baseFilename) {
-  const files = {};
+  const items = getAllItems(plan.inputs, results);
+  const content = buildShareLinkContent(items);
 
-  for (const document of plan.subscriptionDocuments || []) {
-    const items = getDocumentItems(plan.inputs, results, document.documentIndex);
-    const content = buildShareLinkContent(items);
-    const filename = getGistFilename(baseFilename, document.documentIndex, plan.subscriptionDocuments.length);
-
-    if (content) {
-      files[filename] = { content };
-    }
+  if (!content) {
+    return {};
   }
 
-  const directItems = getDirectItems(plan.inputs, results);
-  const directContent = buildShareLinkContent(directItems);
-
-  if (directContent) {
-    const filename = Object.keys(files).length > 0 ? getDirectGistFilename(baseFilename) : baseFilename;
-    files[filename] = { content: directContent };
-  }
-
-  return files;
+  return {
+    [baseFilename]: { content },
+  };
 }
 
 /**
@@ -211,6 +203,15 @@ function getDocumentItems(inputs, results, documentIndex) {
     .map((input, resultIndex) => ({ input, result: results[resultIndex] }))
     .filter((item) => item.input.source?.documentIndex === documentIndex)
     .sort((left, right) => left.input.source.nodeIndex - right.input.source.nodeIndex);
+}
+
+/**
+ * 功能说明：获取全部节点输入和探测结果。
+ * 参数说明：inputs 为节点输入，results 为探测结果。
+ * 返回值说明：返回按探测顺序排列的条目数组。
+ */
+function getAllItems(inputs, results) {
+  return inputs.map((input, resultIndex) => ({ input, result: results[resultIndex] }));
 }
 
 /**
@@ -696,22 +697,92 @@ function isSupportedSingBoxOutbound(node) {
  * 参数说明：gistId 为 Gist ID，token 为 PAT，files 为 Gist files 对象，fetchImpl 为 fetch。
  * 返回值说明：返回 Promise<void>。
  */
-async function updateGist(gistId, token, files, fetchImpl) {
+async function updateGist(gistId, token, files, fetchImpl, options = {}) {
+  const patchFiles = await buildPatchFiles(gistId, token, files, fetchImpl, options.cleanupFilenames);
   const response = await fetchImpl(`https://api.github.com/gists/${gistId}`, {
     method: 'PATCH',
-    headers: {
-      accept: 'application/vnd.github+json',
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-      'user-agent': 'xray-v4-prober/1.0',
-      'x-github-api-version': '2022-11-28',
-    },
-    body: JSON.stringify({ files }),
+    headers: buildGistHeaders(token),
+    body: JSON.stringify({ files: patchFiles }),
   });
 
   if (!response.ok) {
     throw new Error(`gist update failed with status ${response.status}`);
   }
+}
+
+/**
+ * 功能说明：构建 Gist PATCH 文件对象，顺带清理旧拆分文件。
+ * 参数说明：gistId/token 为 Gist 凭据，files 为新文件，fetchImpl 为 fetch，cleanupFilenames 为待清理文件名。
+ * 返回值说明：返回可提交给 Gist API 的 files 对象。
+ */
+async function buildPatchFiles(gistId, token, files, fetchImpl, cleanupFilenames = new Set()) {
+  if (cleanupFilenames.size === 0) {
+    return files;
+  }
+
+  const existingFilenames = await readGistFilenames(gistId, token, fetchImpl);
+  const patchFiles = { ...files };
+
+  for (const filename of existingFilenames) {
+    if (cleanupFilenames.has(filename) && !Object.hasOwn(patchFiles, filename)) {
+      patchFiles[filename] = null;
+    }
+  }
+
+  return patchFiles;
+}
+
+/**
+ * 功能说明：读取 Gist 当前文件名，避免盲删不存在的文件。
+ * 参数说明：gistId/token 为 Gist 凭据，fetchImpl 为 fetch。
+ * 返回值说明：返回文件名数组。
+ */
+async function readGistFilenames(gistId, token, fetchImpl) {
+  const response = await fetchImpl(`https://api.github.com/gists/${gistId}`, {
+    method: 'GET',
+    headers: buildGistHeaders(token),
+  });
+
+  if (!response.ok) {
+    throw new Error(`gist read failed with status ${response.status}`);
+  }
+
+  const gist = await response.json();
+  return Object.keys(gist.files || {});
+}
+
+/**
+ * 功能说明：生成 Gist API 请求头。
+ * 参数说明：token 为 GitHub PAT。
+ * 返回值说明：返回 headers 对象。
+ */
+function buildGistHeaders(token) {
+  return {
+    accept: 'application/vnd.github+json',
+    authorization: `Bearer ${token}`,
+    'content-type': 'application/json',
+    'user-agent': 'xray-v4-prober/1.0',
+    'x-github-api-version': '2022-11-28',
+  };
+}
+
+/**
+ * 功能说明：生成需要从旧 Gist 中清理的拆分文件名。
+ * 参数说明：baseFilename 为主文件名，outputFormat 为输出格式。
+ * 返回值说明：返回文件名集合。
+ */
+function getGistCleanupFilenames(baseFilename, outputFormat) {
+  if ((outputFormat || 'share-links') !== 'share-links') {
+    return new Set();
+  }
+
+  const cleanupFilenames = new Set([getDirectGistFilename(baseFilename)]);
+
+  for (let index = 0; index < 100; index += 1) {
+    cleanupFilenames.add(getGistFilename(baseFilename, index, 2));
+  }
+
+  return cleanupFilenames;
 }
 
 /**

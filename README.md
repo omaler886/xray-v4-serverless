@@ -238,10 +238,10 @@ GitHub 的 secret gist 是 unlisted，不会出现在个人主页列表，但知
 - 输入仍支持 Clash/Mihomo YAML、sing-box JSON 和常见分享链接订阅。
 - 如果确实想保持输入原格式，把 `GIST_OUTPUT_FORMAT` secret 设为 `original`。
 - 默认分享链接输出会跳过探测失败的节点；写入 Gist 前会校验每条输出节点的 server 都是 IPv4。
-- 如果输入是 `XRAY_SHARE_LINKS`，也会生成一个私密 Gist 文件。
+- 多个订阅 URL 和 `XRAY_SHARE_LINKS` 会默认汇聚成同一个私密 Gist 文件。
 - 替换后的内容只写入 Gist，不会作为 artifact 上传，不会打印到日志。
-- 多个订阅会写成多个文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。
-- 某个订阅没有任何成功节点时，不会覆盖该订阅对应的 Gist 文件。
+- 汇聚发布会清理旧的拆分文件，例如 `patched-subscription-1.txt`、`patched-subscription-2.txt`。
+- 没有任何成功节点时，不会覆盖 Gist 文件。
 
 公开仓库建议：
 
